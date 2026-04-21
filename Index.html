@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Y's & Hats</title>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{
+  width:100%;height:100%;
+  background:#1a1025;
+  font-family:'Quicksand',sans-serif;
+  overflow:hidden;
+  touch-action:none;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+}
+canvas{display:block;margin:0 auto;}
+#overlay{
+  position:fixed;inset:0;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  text-align:center;z-index:20;
+  background:#1a1025ee;
+  padding:24px;
+  pointer-events:auto;
+  overflow-y:auto;
+}
+#overlay h1,#overlay h2{
+  font-family:'Lilita One',cursive;
+  color:#fff;margin-bottom:6px;
+}
+#overlay h1{font-size:clamp(40px,10vw,58px);text-shadow:0 4px 0 #7c3aed,0 0 40px #7c3aed88}
+#overlay h2{font-size:42px;color:#f472b6;text-shadow:0 0 30px #f472b644}
+#overlay p{color:#c4b5fd;font-size:15px;max-width:310px;line-height:1.6;margin:8px 0}
+#overlay .big{font-family:'Lilita One',cursive;font-size:50px;color:#fff;margin:10px 0}
+#overlay .detail{color:#ffffff66;font-size:14px}
+#overlay .gold{color:#fbbf24;font-family:'Lilita One',cursive;font-size:17px;margin:6px 0}
+.obtn{
+  font-family:'Lilita One',cursive;padding:16px 52px;font-size:24px;
+  border:none;border-radius:50px;color:#fff;cursor:pointer;
+  letter-spacing:2px;margin-top:18px;
+  box-shadow:0 8px 28px #7c3aed55;
+}
+.obtn:active{transform:scale(.94)}
+.obtn.pink{background:linear-gradient(135deg,#f472b6,#7c3aed)}
+.obtn.red{background:linear-gradient(135deg,#f472b6,#ef4444)}
+.lb-table{
+  width:100%;max-width:300px;margin:12px auto 0;
+  border-collapse:collapse;
+}
+.lb-table th{
+  font-family:'Lilita One',cursive;
+  color:#a78bfa;font-size:13px;
+  padding:4px 8px;
+  border-bottom:1px solid #a78bfa33;
+  text-align:left;
+}
+.lb-table th:last-child{text-align:right}
+.lb-table td{
+  color:#c4b5fd;font-size:14px;
+  padding:4px 8px;
+  border-bottom:1px solid #ffffff0a;
+}
+.lb-table td:last-child{text-align:right;color:#fbbf24;font-family:'Lilita One',cursive;}
+.lb-table tr.me td{color:#f472b6;}
+.lb-table tr.me td:last-child{color:#f472b6;}
+.name-input{
+  background:#2a1f3d;border:2px solid #7c3aed;
+  color:#fff;font-family:'Quicksand',sans-serif;font-size:18px;
+  padding:12px 20px;border-radius:14px;
+  text-align:center;width:240px;
+  outline:none;margin-top:12px;
+}
+.name-input::placeholder{color:#ffffff44}
+.name-input:focus{border-color:#f472b6;box-shadow:0 0 20px #f472b644}
+.lb-title{
+  font-family:'Lilita One',cursive;
+  color:#a78bfa;font-size:16px;margin-top:18px;
+}
+.personal-best{
+  font-family:'Lilita One',cursive;
+  color:#fbbf24;font-size:14px;
+  margin-top:8px;
+  opacity:.7;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay"></div>
+<script>
+const COLORS=["#f472b6","#34d399","#60a5fa","#fbbf24","#a78bfa"];
+const CNAMES=["Pink","Green","Blue","Gold","Purple"];
+const NLANES=4;
+const YW=34,YH=48,HATW=56,HATH=50;
+const FALL0=0.85;
+const SOFT_DROP_MULT=8;
+const SPAWN0=1500;
+const SPAWN_MIN=450;
+const MAX_ONSCREEN=6;
+const RUSH_BONUS_MAX=15;
+const HOLD_THRESHOLD=150;
+const DOUBLE_TAP_MS=350;
+let W,H,ctx,dpr;
+let state="menu";
+let score,lives,combo,bestCombo,level;
+let active=[];
+let ys=[],idC=0,spawnT=null;
+let floats=[];
+let laneW;
+let personalBest=0;
+let playerName="";
+let leaderboard=[];
+let softDropping=false;
+let holdTimer=null;
+let holdStartTime=0;
+let lastTapTime=0;
+let lastTapLane=-1;
+let hardDropTrails=[];
+let shakeX=0,shakeY=0;
+const canvas=document.getElementById("c");
+const overlay=document.getElementById("overlay");
+let hatZoneTop=0;
+async function loadData(){
+try{const pb=await window.storage.get("personalBest");if(pb)personalBest=parseInt(pb.value)||0;}catch(e){}
+try{const pn=await window.storage.get("playerName");if(pn)playerName=pn.value||"";}catch(e){}
+try{const lb=await window.storage.get("leaderboard",true);if(lb)leaderboard=JSON.parse(lb.value)||[];}catch(e){leaderboard=[];}
+}
+async function savePersonalBest(s){
+personalBest=s;
+try{await window.storage.set("personalBest",String(s));}catch(e){}
+}
+async function savePlayerName(n){
+playerName=n;
+try{await window.storage.set("playerName",n);}catch(e){}
+}
+async function saveToLeaderboard(name,s){
+try{
+try{const lb=await window.storage.get("leaderboard",true);if(lb)leaderboard=JSON.parse(lb.value)||[];}catch(e){}
+const idx=leaderboard.findIndex(e=>e.name.toLowerCase()===name.toLowerCase());
+if(idx>=0){if(s>leaderboard[idx].score)leaderboard[idx].score=s;}
+else{leaderboard.push({name,score:s});}
+leaderboard.sort((a,b)=>b.score-a.score);
+leaderboard=leaderboard.slice(0,20);
+await window.storage.set("leaderboard",JSON.stringify(leaderboard),true);
+}catch(e){}
+}
+function dk(hex,a){let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgb(${Math.max(0,r*(1-a))|0},${Math.max(0,g*(1-a))|0},${Math.max(0,b*(1-a))|0})`}
+function lt(hex,a){let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgb(${Math.min(255,r+(255-r)*a)|0},${Math.min(255,g+(255-g)*a)|0},${Math.min(255,b+(255-b)*a)|0})`}
+function hexRgb(hex){return[parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]}
+function resize(){
+dpr=window.devicePixelRatio||1;
+W=Math.min(420,window.innerWidth);
+H=window.innerHeight;
+canvas.width=W*dpr;canvas.height=H*dpr;
+canvas.style.width=W+"px";canvas.style.height=H+"px";
+ctx=canvas.getContext("2d");
+ctx.setTransform(dpr,0,0,dpr,0,0);
+laneW=W/NLANES;
+hatZoneTop=H-100;
+}
+window.addEventListener("resize",resize);
+resize();
+function drawY(x,y,ci,sz,ghost){
+const c=COLORS[ci],lc=lt(c,.3);
+const s=sz||1;
+ctx.lineCap="round";
+ctx.lineWidth=4.5*s;
+if(ghost){ctx.globalAlpha=0.18;}
+ctx.strokeStyle=c;
+ctx.beginPath();ctx.moveTo(x,y+10*s);ctx.lineTo(x-14*s,y-8*s);ctx.stroke();
+ctx.beginPath();ctx.moveTo(x,y+10*s);ctx.lineTo(x+14*s,y-8*s);ctx.stroke();
+ctx.beginPath();ctx.moveTo(x,y+10*s);ctx.lineTo(x,y+24*s);ctx.stroke();
+ctx.fillStyle=lc;
+ctx.beginPath();ctx.arc(x-14*s,y-8*s,3*s,0,Math.PI*2);ctx.fill();
+ctx.beginPath();ctx.arc(x+14*s,y-8*s,3*s,0,Math.PI*2);ctx.fill();
+ctx.fillStyle=c;
+ctx.beginPath();ctx.arc(x,y+31*s,7*s,0,Math.PI*2);ctx.fill();
+ctx.fillStyle="#fff";
+ctx.beginPath();ctx.arc(x-3*s,y+30*s,1.8*s,0,Math.PI*2);ctx.fill();
+ctx.beginPath();ctx.arc(x+3*s,y+30*s,1.8*s,0,Math.PI*2);ctx.fill();
+ctx.fillStyle="#1a1025";
+ctx.beginPath();ctx.arc(x-2.7*s,y+30.3*s,.9*s,0,Math.PI*2);ctx.fill();
+ctx.beginPath();ctx.arc(x+3.3*s,y+30.3*s,.9*s,0,Math.PI*2);ctx.fill();
+ctx.strokeStyle="#fff";ctx.lineWidth=.9*s;
+if(!ghost)ctx.globalAlpha=.6;else ctx.globalAlpha=.08;
+ctx.beginPath();ctx.arc(x,y+32*s,3*s,0.1*Math.PI,0.9*Math.PI);ctx.stroke();
+ctx.globalAlpha=1;
+}
+function drawHatFlipped(cx,ty,type,color){
+const d=dk(color,.25),l=lt(color,.22);
+ctx.lineWidth=0;
+ctx.save();
+ctx.translate(cx,ty+25);
+ctx.scale(1,-1);
+ctx.translate(-cx,-(ty+25));
+switch(type%5){
+case 0:
+roundRect(cx-28,ty-10+50-10,56,10,4,d);
+roundRect(cx-16,ty-10+50-42,32,34,4,color);
+ctx.globalAlpha=.3;roundRect(cx-16,ty-10+50-42,32,7,3,l);ctx.globalAlpha=1;
+ctx.globalAlpha=.5;roundRect(cx-17,ty-10+50-16,34,5,2,d);ctx.globalAlpha=1;
+break;
+case 1:
+ctx.fillStyle=color;
+ctx.beginPath();ctx.moveTo(cx-24,ty+50-8);
+ctx.quadraticCurveTo(cx-24,ty+50-34,cx,ty+50-36);
+ctx.quadraticCurveTo(cx+24,ty+50-34,cx+24,ty+50-8);
+ctx.closePath();ctx.fill();
+ctx.fillStyle=d;
+ctx.beginPath();ctx.moveTo(cx-28,ty+50-8);ctx.lineTo(cx-34,ty+50+2);
+ctx.quadraticCurveTo(cx-26,ty+50+6,cx-18,ty+50-2);ctx.closePath();ctx.fill();
+roundRect(cx-26,ty+50-10,52,5,2,d);
+ctx.fillStyle=l;ctx.globalAlpha=.5;
+ctx.beginPath();ctx.arc(cx,ty+50-36,3.5,0,Math.PI*2);ctx.fill();
+ctx.globalAlpha=1;break;
+case 2:
+ctx.fillStyle=d;
+ctx.beginPath();ctx.ellipse(cx,ty+50-4,27,6,0,0,Math.PI*2);ctx.fill();
+roundRect(cx-26,ty+50-8,52,7,3,d);
+ctx.fillStyle=color;
+ctx.beginPath();ctx.moveTo(cx,ty+50-52);ctx.lineTo(cx-24,ty+50-6);ctx.lineTo(cx+24,ty+50-6);ctx.closePath();ctx.fill();
+ctx.fillStyle="#fbbf24";ctx.globalAlpha=.7;
+ctx.beginPath();ctx.arc(cx-6,ty+50-18,2.5,0,Math.PI*2);ctx.fill();
+ctx.beginPath();ctx.arc(cx+6,ty+50-30,2,0,Math.PI*2);ctx.fill();
+ctx.beginPath();ctx.arc(cx-2,ty+50-40,1.5,0,Math.PI*2);ctx.fill();
+ctx.globalAlpha=1;break;
+case 3:
+roundRect(cx-22,ty+50-22,44,20,3,color);
+ctx.fillStyle=color;
+ctx.beginPath();
+ctx.moveTo(cx-22,ty+50-20);ctx.lineTo(cx-26,ty+50-42);ctx.lineTo(cx-10,ty+50-26);
+ctx.lineTo(cx,ty+50-48);ctx.lineTo(cx+10,ty+50-26);
+ctx.lineTo(cx+26,ty+50-42);ctx.lineTo(cx+22,ty+50-20);
+ctx.closePath();ctx.fill();
+ctx.fillStyle=l;
+[[-26,-42],[0,-48],[26,-42]].forEach(([ox,oy])=>{
+ctx.beginPath();ctx.arc(cx+ox,ty+50+oy,3.5,0,Math.PI*2);ctx.fill();
+});
+ctx.fillStyle="#fff";ctx.globalAlpha=.2;
+[-8,0,8].forEach(ox=>{
+ctx.beginPath();ctx.arc(cx+ox,ty+50-12,3,0,Math.PI*2);ctx.fill();
+});
+ctx.globalAlpha=1;
+roundRect(cx-23,ty+50-4,46,4,2,d);break;
+case 4:
+ctx.fillStyle=l;ctx.globalAlpha=.7;
+ctx.beginPath();ctx.arc(cx,ty+50-42,5.5,0,Math.PI*2);ctx.fill();
+ctx.globalAlpha=1;
+ctx.fillStyle=color;
+ctx.beginPath();ctx.ellipse(cx,ty+50-18,25,24,0,Math.PI,Math.PI*2);ctx.fill();
+ctx.fillRect(cx-25,ty+50-18,50,12);
+ctx.strokeStyle=d;ctx.lineWidth=2;ctx.globalAlpha=.2;
+[-10,0,10].forEach(ox=>{
+ctx.beginPath();ctx.moveTo(cx+ox,ty+50-40);ctx.lineTo(cx+ox*1.1,ty+50-8);ctx.stroke();
+});
+ctx.globalAlpha=1;
+roundRect(cx-25,ty+50-10,50,10,5,d);break;
+}
+ctx.restore();
+}
+function roundRect(x,y,w,h,r,fill){
+ctx.fillStyle=fill;
+ctx.beginPath();
+ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);
+ctx.closePath();ctx.fill();
+}
+let stars=[];
+for(let i=0;i<60;i++)stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.2+.4,a:Math.random()*.3+.1});
+let starOff=0;
+function drawStars(){
+starOff=(starOff+.15)%H;
+ctx.save();
+for(const s of stars){
+ctx.fillStyle=`rgba(255,255,255,${s.a})`;
+ctx.beginPath();
+ctx.arc(s.x*W,(s.y*H+starOff)%H,s.r,0,Math.PI*2);
+ctx.fill();
+}
+ctx.restore();
+}
+function leaderboardHTML(highlight){
+if(leaderboard.length===0)return'';
+let html='<div class="lb-title">LEADERBOARD</div><table class="lb-table"><tr><th>#</th><th>Name</th><th>Score</th></tr>';
+const top10=leaderboard.slice(0,10);
+for(let i=0;i<top10.length;i++){
+const e=top10[i];
+const cls=(highlight&&e.name.toLowerCase()===highlight.toLowerCase())?' class="me"':'';
+html+=`<tr${cls}><td>${i+1}</td><td>${esc(e.name)}</td><td>${e.score}</td></tr>`;
+}
+html+='</table>';
+return html;
+}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function showMenu(){
+state="menu";
+overlay.innerHTML=`
+<h1>Y's &amp; Hats</h1>
+<p>Sort falling Y characters into matching colored hats!</p>
+<p style="font-size:13px;color:#ffffff77;margin-top:2px;max-width:280px">
+<b style="color:#c4b5fd">Tap</b> a hat → send Y there<br>
+<b style="color:#c4b5fd">Hold</b> a hat → soft drop (fast fall)<br>
+<b style="color:#c4b5fd">Double-tap</b> → hard drop (instant slam)
+</p>
+<button class="obtn pink" onclick="startGame()">PLAY</button>
+${personalBest>0?`<div class="personal-best">Your Best: ${personalBest}</div>`:''}
+${leaderboardHTML(playerName)}
+`;
+overlay.style.display="flex";
+}
+function showGameOver(){
+state="over";
+clearHold();
+const isNewPB=score>personalBest&&score>0;
+if(isNewPB){
+state="nameinput";
+savePersonalBest(score);
+overlay.innerHTML=`
+<h2>Game Over</h2>
+<div class="big">${score}</div>
+<div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
+<div class="gold">★ NEW HIGH SCORE ★</div>
+<p style="font-size:14px;color:#c4b5fd">Enter your name for the leaderboard:</p>
+<input class="name-input" id="nameIn" type="text" maxlength="16" placeholder="Your name" value="${esc(playerName)}" autofocus>
+<button class="obtn pink" id="submitName">SUBMIT</button>
+<button class="obtn red" style="margin-top:8px;padding:12px 36px;font-size:18px" onclick="skipName()">SKIP</button>
+`;
+overlay.style.display="flex";
+const nameIn=document.getElementById("nameIn");
+const submitBtn=document.getElementById("submitName");
+nameIn.focus();
+nameIn.addEventListener("keydown",e=>{if(e.key==="Enter")submitBtn.click();});
+submitBtn.addEventListener("click",async()=>{
+const n=nameIn.value.trim();
+if(n.length===0)return;
+await savePlayerName(n);
+await saveToLeaderboard(n,score);
+showPostScore();
+});
+}else{
+showPostScore();
+}
+}
+window.skipName=async function(){showPostScore();}
+function showPostScore(){
+state="over";
+overlay.innerHTML=`
+<h2>Game Over</h2>
+<div class="big">${score}</div>
+<div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
+${personalBest>0?`<div class="personal-best">Personal Best: ${personalBest}</div>`:''}
+${leaderboardHTML(playerName)}
+<button class="obtn red" onclick="startGame()">TRY AGAIN</button>
+`;
+overlay.style.display="flex";
+}
+function getActiveY(){
+let best=null,bestPos=-Infinity;
+for(const y of ys){
+if(y.done)continue;
+if(y.y>bestPos){bestPos=y.y;best=y;}
+}
+return best;
+}
+window.startGame=function(){
+score=0;lives=3;combo=0;bestCombo=0;level=1;
+ys=[];floats=[];idC=0;hardDropTrails=[];
+clearHold();
+lastTapTime=0;lastTapLane=-1;
+shakeX=0;shakeY=0;
+const arr=[0,1,2,3,4];
+for(let i=4;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}
+active=arr.slice(0,NLANES);
+overlay.style.display="none";
+state="playing";
+if(spawnT)clearInterval(spawnT);
+spawnT=setInterval(trySpawn,80);
+lastSpawnTime=performance.now();
+}
+function clearHold(){
+if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}
+softDropping=false;
+holdStartTime=0;
+}
+function getLaneFromX(px){
+const lane=Math.floor(px/laneW);
+return Math.max(0,Math.min(NLANES-1,lane));
+}
+canvas.addEventListener("pointerdown",(e)=>{
+if(state!=="playing")return;
+e.preventDefault();
+const rect=canvas.getBoundingClientRect();
+const x=e.clientX-rect.left;
+const lane=getLaneFromX(x);
+handleDown(lane);
+});
+canvas.addEventListener("pointerup",(e)=>{
+if(state!=="playing")return;
+e.preventDefault();
+clearHold();
+});
+canvas.addEventListener("pointercancel",()=>{
+clearHold();
+});
+canvas.addEventListener("contextmenu",(e)=>e.preventDefault());
+function handleDown(lane){
+if(state!=="playing")return;
+const now=performance.now();
+moveTo(lane);
+if(lane===lastTapLane&&(now-lastTapTime)<DOUBLE_TAP_MS){
+hardDrop(lane);
+lastTapTime=0;
+lastTapLane=-1;
+clearHold();
+return;
+}
+lastTapTime=now;
+lastTapLane=lane;
+clearHold();
+holdStartTime=now;
+holdTimer=setTimeout(()=>{
+softDropping=true;
+},HOLD_THRESHOLD);
+}
+function moveTo(laneIdx){
+if(state!=="playing")return;
+const a=getActiveY();
+if(!a)return;
+a.lane=laneIdx;
+}
+function hardDrop(lane){
+if(state!=="playing")return;
+const a=getActiveY();
+if(!a)return;
+if(lane!==undefined)a.lane=lane;
+const targetX=a.lane*laneW+laneW/2;
+hardDropTrails.push({
+x:targetX,y0:a.y,y1:hatZoneTop-YH+8,
+ci:a.ci,a:1
+});
+a.y=hatZoneTop-YH+10;
+a.drawX=targetX;
+shakeX=(Math.random()-.5)*3;
+shakeY=-1.5-Math.random()*1.5;
+}
+let lastSpawnTime=0;
+function getSpawnInterval(){
+return Math.max(SPAWN_MIN,SPAWN0-(level-1)*120);
+}
+function getMaxOnScreen(){
+return Math.min(MAX_ONSCREEN+Math.floor(level/2),12);
+}
+function trySpawn(){
+if(state!=="playing")return;
+const now=performance.now();
+if(now-lastSpawnTime<getSpawnInterval())return;
+if(ys.length>=getMaxOnScreen())return;
+lastSpawnTime=now;
+spawnOne();
+}
+function spawnOne(){
+const targetLane=Math.floor(Math.random()*NLANES);
+const ci=active[targetLane];
+let startLane=Math.floor(Math.random()*NLANES);
+if(Math.random()>.25)while(startLane===targetLane)startLane=Math.floor(Math.random()*NLANES);
+ys.push({
+id:idC++,y:-YH,
+lane:startLane,targetLane,
+ci,drawX:startLane*laneW+laneW/2,
+spawnTime:performance.now(),
+});
+}
+let lastT=0;
+function loop(t){
+const dt=Math.min(t-lastT,32);lastT=t;
+requestAnimationFrame(loop);
+ctx.save();
+ctx.translate(shakeX,shakeY);
+shakeX*=0.8;shakeY*=0.8;
+if(Math.abs(shakeX)<0.1)shakeX=0;
+if(Math.abs(shakeY)<0.1)shakeY=0;
+ctx.clearRect(-10,-10,W+20,H+20);
+ctx.fillStyle="#1a1025";
+ctx.fillRect(-10,-10,W+20,H+20);
+drawStars();
+if(state==="playing")updateGame(dt);
+if(state==="playing")drawGame();
+ctx.restore();
+}
+function updateGame(dt){
+const baseSpeed=(FALL0+(level-1)*.18)*(dt/16);
+const toRemove=new Set();
+const activeY=getActiveY();
+for(const y of ys){
+const isActive=(y===activeY);
+const spd=isActive&&softDropping?baseSpeed*SOFT_DROP_MULT:baseSpeed;
+y.y+=spd;
+const tx=y.lane*laneW+laneW/2;
+y.drawX+=(tx-y.drawX)*.22;
+if(y.y+YH>hatZoneTop+8&&!y.done){
+y.done=true;
+toRemove.add(y.id);
+if(y.lane===y.targetLane){
+const elapsed=performance.now()-y.spawnTime;
+const rushBonus=Math.max(0,Math.round(RUSH_BONUS_MAX*(1-elapsed/8000)));
+const pts=10+Math.floor(combo*5)+level*2+rushBonus;
+score+=pts;combo++;
+if(combo>bestCombo)bestCombo=combo;
+if(score>120*level)level++;
+const bonusTxt=rushBonus>0?` +${rushBonus}⚡`:'';
+addFloat(y.drawX,hatZoneTop-20,"+"+pts+bonusTxt,COLORS[y.ci]);
+}else{
+lives--;combo=0;
+addFloat(y.drawX,hatZoneTop-20,"MISS","#ef4444");
+}
+}
+}
+ys=ys.filter(y=>!toRemove.has(y.id));
+for(const f of floats){f.y-=1.5;f.a-=.02;}
+floats=floats.filter(f=>f.a>0);
+for(const tr of hardDropTrails){tr.a-=.08;}
+hardDropTrails=hardDropTrails.filter(tr=>tr.a>0);
+if(lives<=0){
+if(spawnT)clearInterval(spawnT);
+showGameOver();
+}
+}
+function addFloat(x,y,txt,color){
+floats.push({x,y,txt,color,a:1});
+}
+function drawGame(){
+ctx.strokeStyle="rgba(255,255,255,.06)";
+ctx.lineWidth=1;
+for(let i=1;i<NLANES;i++){
+ctx.beginPath();ctx.moveTo(i*laneW,0);ctx.lineTo(i*laneW,hatZoneTop);ctx.stroke();
+}
+for(let i=0;i<NLANES;i++){
+const cx=i*laneW+laneW/2;
+drawHatFlipped(cx,hatZoneTop+6,active[i],COLORS[active[i]]);
+}
+for(let i=0;i<NLANES;i++){
+const[r,g,b]=hexRgb(COLORS[active[i]]);
+const grad=ctx.createLinearGradient(0,hatZoneTop-30,0,hatZoneTop+10);
+grad.addColorStop(0,`rgba(${r},${g},${b},0)`);
+grad.addColorStop(1,`rgba(${r},${g},${b},.08)`);
+ctx.fillStyle=grad;
+ctx.fillRect(i*laneW,hatZoneTop-30,laneW,40);
+}
+for(const tr of hardDropTrails){
+const[r,g,b]=hexRgb(COLORS[tr.ci]);
+ctx.fillStyle=`rgba(${r},${g},${b},${tr.a*0.25})`;
+ctx.fillRect(tr.x-2,tr.y0,4,tr.y1-tr.y0);
+}
+const activeY=getActiveY();
+if(activeY){
+const ghostX=activeY.lane*laneW+laneW/2;
+const ghostY=hatZoneTop-YH+8;
+drawY(ghostX,ghostY,activeY.ci,1,true);
+}
+for(const y of ys){
+drawY(y.drawX,y.y,y.ci,1,false);
+}
+if(activeY&&softDropping){
+const ax=activeY.drawX,ay=activeY.y;
+ctx.strokeStyle=COLORS[activeY.ci];
+ctx.lineWidth=1;
+ctx.globalAlpha=0.25;
+for(let i=0;i<3;i++){
+const ox=(i-1)*7;
+ctx.beginPath();
+ctx.moveTo(ax+ox,ay-10-i*5);
+ctx.lineTo(ax+ox,ay-10-i*5+6);
+ctx.stroke();
+}
+ctx.globalAlpha=1;
+}
+ctx.textAlign="center";
+ctx.font="700 22px 'Lilita One',cursive";
+for(const f of floats){
+ctx.globalAlpha=Math.max(0,f.a);
+ctx.fillStyle=f.color;
+ctx.fillText(f.txt,f.x,f.y);
+}
+ctx.globalAlpha=1;
+ctx.textAlign="left";
+ctx.font="20px sans-serif";
+ctx.fillText("❤️".repeat(Math.max(0,lives))+"🖤".repeat(Math.max(0,3-lives)),12,30);
+ctx.textAlign="center";
+ctx.font="700 16px 'Lilita One',cursive";
+ctx.fillStyle="#c4b5fd";
+ctx.fillText("Lv."+level,W/2,28);
+ctx.textAlign="right";
+ctx.font="700 24px 'Lilita One',cursive";
+ctx.fillStyle="#fbbf24";
+ctx.fillText(score,W-12,30);
+if(personalBest>0){
+ctx.textAlign="right";
+ctx.font="700 11px 'Lilita One',cursive";
+ctx.fillStyle="#ffffff44";
+ctx.fillText("BEST: "+personalBest,W-12,46);
+}
+if(combo>1){
+ctx.textAlign="center";
+ctx.font="700 15px 'Lilita One',cursive";
+ctx.fillStyle="#34d399";
+ctx.fillText(combo+"x COMBO!",W/2,48);
+}
+}
+let keysDown=new Set();
+document.addEventListener("keydown",e=>{
+if(state==="nameinput")return;
+if(state!=="playing")return;
+const k=e.key.toLowerCase();
+let lane=-1;
+if(k>="1"&&k<="4")lane=parseInt(k)-1;
+else if(k==="a")lane=0;
+else if(k==="s")lane=1;
+else if(k==="d")lane=2;
+else if(k==="f")lane=3;
+if(lane>=0&&!keysDown.has(k)){
+keysDown.add(k);
+handleDown(lane);
+}
+if(k==="arrowdown"||k===" "){
+e.preventDefault();
+const a=getActiveY();
+if(a)hardDrop(a.lane);
+}
+});
+document.addEventListener("keyup",e=>{
+const k=e.key.toLowerCase();
+if(keysDown.has(k)){
+keysDown.delete(k);
+clearHold();
+}
+});
+(async()=>{
+await loadData();
+showMenu();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
