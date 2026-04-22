@@ -326,34 +326,76 @@ function generateResultImage(finalScore, finalLevel, finalBestCombo, isNewPB){
 async function shareResult(){
   const isNewPB = score >= personalBest;
   const shotCanvas = generateResultImage(score, level, bestCombo, isNewPB);
+  const dataUrl = shotCanvas.toDataURL('image/png');
 
-  // Try native share with image first (mobile)
-  try {
-    const blob = await new Promise(r=>shotCanvas.toBlob(r,'image/png'));
-    const file = new File([blob], 'ys-and-hats-score.png', {type:'image/png'});
+  // Show share screen with the image and action buttons
+  state="sharing";
+  overlay.innerHTML=`
+    <p style="color:#a78bfa;font-size:14px;margin-bottom:8px">Your result card:</p>
+    <img id="shotImg" src="${dataUrl}" style="width:300px;max-width:90%;border-radius:16px;box-shadow:0 8px 30px #00000088;margin-bottom:12px" />
+    <p style="color:#ffffff55;font-size:12px;margin:0">Long-press image to save, or use the buttons below</p>
+    <button class="obtn share" id="copyBtn" style="margin-top:12px">📋 COPY IMAGE</button>
+    <button class="obtn share" id="saveBtn" style="background:linear-gradient(135deg,#60a5fa,#3b82f6)">💾 SAVE IMAGE</button>
+    <button class="obtn share" id="emailBtn" style="background:linear-gradient(135deg,#f472b6,#ec4899)">📧 EMAIL SCORE</button>
+    <button class="obtn red" onclick="showGameOverReturn()" style="padding:10px 30px;font-size:16px">BACK</button>
+  `;
+  overlay.style.display="flex";
 
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({
-        text: `I scored ${score} in Y's & Hats! Can you beat me?`,
-        files: [file]
-      });
-      return;
+  // Copy image to clipboard
+  document.getElementById("copyBtn").addEventListener("click",async()=>{
+    const btn=document.getElementById("copyBtn");
+    try{
+      const blob=await(await fetch(dataUrl)).blob();
+      await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]);
+      btn.textContent="✅ COPIED!";
+      setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
+    }catch(e){
+      // Fallback: copy text score
+      try{
+        await navigator.clipboard.writeText(
+          `Y's & Hats Score: ${score} | Level ${level} | Combo ${bestCombo}x | Best: ${personalBest}`
+        );
+        btn.textContent="✅ TEXT COPIED!";
+        setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
+      }catch(e2){
+        btn.textContent="❌ NOT SUPPORTED";
+        setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
+      }
     }
-  } catch(e){
-    // Share cancelled or failed, fall through
-    if(e.name==='AbortError') return;
-  }
+  });
 
-  // Fallback: mailto with score details
-  const subject = encodeURIComponent(`Y's & Hats Score: ${score}!`);
-  const body = encodeURIComponent(
-    `I just scored ${score} in Y's & Hats!\n\n` +
-    `Level: ${level}\n` +
-    `Best Combo: ${bestCombo}x\n` +
-    `Personal Best: ${personalBest}\n\n` +
-    `Can you beat my score?`
-  );
-  window.location.href=`mailto:wellness@adiuvo.org.uk?subject=${subject}&body=${body}`;
+  // Save/download image
+  document.getElementById("saveBtn").addEventListener("click",()=>{
+    const link=document.createElement('a');
+    link.download='ys-and-hats-score.png';
+    link.href=dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    const btn=document.getElementById("saveBtn");
+    btn.textContent="✅ SAVED!";
+    setTimeout(()=>{btn.textContent="💾 SAVE IMAGE";},2000);
+  });
+
+  // Email with pre-filled address
+  document.getElementById("emailBtn").addEventListener("click",()=>{
+    const subject=encodeURIComponent(`Y's & Hats Score: ${score}!`);
+    const body=encodeURIComponent(
+      `I just scored ${score} in Y's & Hats!\n\n`+
+      `Level: ${level}\n`+
+      `Best Combo: ${bestCombo}x\n`+
+      `Personal Best: ${personalBest}\n\n`+
+      `Can you beat my score?`
+    );
+    window.open(`mailto:wellness@adiuvo.org.uk?subject=${subject}&body=${body}`,'_blank');
+  });
+}
+
+// Return to game over screen from share screen
+let lastScore=0, lastLevel=0, lastBestCombo=0, lastIsNewPB=false;
+
+window.showGameOverReturn=function(){
+  showGameOverWithValues(lastScore, lastLevel, lastBestCombo, lastIsNewPB);
 }
 
 /* ═══════ OVERLAY SCREENS ═══════ */
@@ -379,10 +421,16 @@ function showGameOver(){
   const isNewPB=score>personalBest&&score>0;
   if(isNewPB) savePersonalBest(score);
 
+  lastScore=score; lastLevel=level; lastBestCombo=bestCombo; lastIsNewPB=isNewPB;
+  showGameOverWithValues(score, level, bestCombo, isNewPB);
+}
+
+function showGameOverWithValues(s, lv, bc, isNewPB){
+  state="over";
   overlay.innerHTML=`
     <h2>Game Over</h2>
-    <div class="big">${score}</div>
-    <div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
+    <div class="big">${s}</div>
+    <div class="detail">Level ${lv} · Best combo: ${bc}x</div>
     ${isNewPB?'<div class="gold">★ NEW HIGH SCORE ★</div>':''}
     ${personalBest>0?`<div class="personal-best">Personal Best: ${personalBest}</div>`:''}
     <button class="obtn share" onclick="shareResult()">📤 SHARE SCORE</button>
