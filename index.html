@@ -12,13 +12,12 @@ html,body{
   background:#1a1025;
   font-family:'Quicksand',sans-serif;
   overflow:hidden;
-  touch-action:none;
   -webkit-tap-highlight-color:transparent;
-  -webkit-touch-callout:none;
   -webkit-user-select:none;
   user-select:none;
 }
-canvas{display:block;margin:0 auto;}
+#c{display:block;margin:0 auto;}
+#shotCanvas{touch-action:auto;}
 #overlay{
   position:fixed;inset:0;
   display:flex;flex-direction:column;
@@ -27,7 +26,9 @@ canvas{display:block;margin:0 auto;}
   background:#1a1025ee;
   padding:24px;
   pointer-events:auto;
+  touch-action:auto;
   overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
 }
 #overlay h1,#overlay h2{
   font-family:'Lilita One',cursive;
@@ -49,14 +50,27 @@ canvas{display:block;margin:0 auto;}
 .obtn.pink{background:linear-gradient(135deg,#f472b6,#7c3aed)}
 .obtn.red{background:linear-gradient(135deg,#f472b6,#ef4444)}
 .obtn.share{background:linear-gradient(135deg,#34d399,#059669);padding:12px 36px;font-size:18px}
+.obtn.blue{background:linear-gradient(135deg,#60a5fa,#7c3aed);padding:12px 36px;font-size:18px}
 .personal-best{
   font-family:'Lilita One',cursive;
   color:#fbbf24;font-size:14px;
   margin-top:8px;
   opacity:.7;
 }
-/* Hidden canvas for screenshot */
 #shotCanvas{position:absolute;left:-9999px;top:-9999px}
+.lb{width:100%;max-width:340px;margin:10px auto 4px;text-align:left}
+.lb h3{font-family:'Lilita One',cursive;font-size:18px;color:#c4b5fd;text-align:center;margin-bottom:8px}
+.lb-row{display:flex;align-items:center;padding:6px 12px;border-radius:8px;margin-bottom:3px;background:rgba(255,255,255,.04)}
+.lb-row.me{background:rgba(251,191,36,.12);border:1px solid #fbbf2444}
+.lb-rank{font-family:'Lilita One',cursive;font-size:16px;color:#a78bfa;width:28px;flex-shrink:0}
+.lb-rank.r1{color:#fbbf24}.lb-rank.r2{color:#d1d5db}.lb-rank.r3{color:#f59e0b}
+.lb-name{flex:1;color:#fff;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-sc{font-family:'Lilita One',cursive;font-size:16px;color:#fbbf24;margin-left:8px}
+.nm-section{margin:8px 0}
+.nm-section label{color:#c4b5fd;font-size:12px;display:block;margin-bottom:4px}
+.nm-input{background:#ffffff12;border:2px solid #7c3aed55;border-radius:10px;padding:8px 14px;font-size:16px;color:#fff;font-family:'Quicksand',sans-serif;font-weight:700;text-align:center;width:200px;outline:none}
+.nm-input:focus{border-color:#a78bfa}
+.nm-input::placeholder{color:#ffffff33}
 </style>
 </head>
 <body>
@@ -65,57 +79,117 @@ canvas{display:block;margin:0 auto;}
 <div id="overlay"></div>
 
 <script>
-/* ═══════ CONFIG ═══════ */
-const COLORS=["#f472b6","#34d399","#60a5fa","#fbbf24","#a78bfa"];
-const CNAMES=["Pink","Green","Blue","Gold","Purple"];
-const NLANES=4;
-const YW=34,YH=48,HATW=56,HATH=50;
+/* ═══════ SUPABASE ═══════ */
+var SUPA_URL="https://lwmgcsulckzuovuxcozx.supabase.co";
+var SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3bWdjc3VsY2t6dW92dXhjb3p4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NTk3MzIsImV4cCI6MjA5MjQzNTczMn0.chFzQey3vcPEe9YwODJS9XQFEb0cMzdJeJWYyv8Y-v0";
 
-const FALL0 = 0.85;
-const SOFT_DROP_MULT = 8;
-const SPAWN0 = 1500;
-const SPAWN_MIN = 450;
-const MAX_ONSCREEN = 6;
-const RUSH_BONUS_MAX = 15;
-const HOLD_THRESHOLD = 150;
-const DOUBLE_TAP_MS = 350;
+function fetchLB(cb){
+  fetch(SUPA_URL+"/rest/v1/leaderboard?select=name,score&order=score.desc&limit=10",{
+    headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY}
+  }).then(function(r){
+    if(!r.ok) return r.text().then(function(t){throw new Error(r.status+": "+t)});
+    return r.json();
+  }).then(function(rows){cb(rows,null)}).catch(function(e){cb([],e)});
+}
+function postScore(name,sc){
+  return fetch(SUPA_URL+"/rest/v1/leaderboard",{
+    method:"POST",
+    headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"return=minimal"},
+    body:JSON.stringify({name:name,score:sc})
+  }).then(function(r){
+    if(!r.ok) return r.text().then(function(t){console.error("Post failed:",r.status,t)});
+  }).catch(function(e){console.error("Post error:",e)});
+}
+
+function escH(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+
+function lbContent(rows,hlName,hlScore){
+  if(!rows||!rows.length) return '<h3>🏆 Leaderboard</h3><div style="color:#ffffff44;text-align:center;font-size:13px;padding:10px">No scores yet — be the first!</div>';
+  var html='<h3>🏆 Leaderboard</h3>';
+  var hit=false;
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i];
+    var rc=i===0?"r1":i===1?"r2":i===2?"r3":"";
+    var me="";
+    if(!hit&&hlName&&r.name===hlName&&r.score===hlScore){me="me";hit=true;}
+    html+='<div class="lb-row '+me+'"><span class="lb-rank '+rc+'">'+(i+1)+'</span><span class="lb-name">'+escH(r.name)+'</span><span class="lb-sc">'+r.score+'</span></div>';
+  }
+  return html;
+}
+
+/* Load LB into #lbBox without replacing the element */
+function loadLB(hlName,hlScore){
+  var box=document.getElementById("lbBox");
+  if(!box) return;
+  box.innerHTML='<div style="color:#c4b5fd;text-align:center;font-size:13px;padding:10px">Loading...</div>';
+  fetchLB(function(rows,err){
+    var box2=document.getElementById("lbBox");
+    if(!box2) return;
+    if(err){
+      box2.innerHTML='<h3>🏆 Leaderboard</h3><div style="color:#ffffff44;text-align:center;font-size:12px;padding:10px">Leaderboard available when hosted online</div>';
+      return;
+    }
+    box2.innerHTML=lbContent(rows,hlName,hlScore);
+  });
+}
+
+/* ═══════ CONFIG ═══════ */
+var COLORS=["#f472b6","#34d399","#60a5fa","#fbbf24","#a78bfa"];
+var CNAMES=["Pink","Green","Blue","Gold","Purple"];
+var NLANES=4;
+var YW=34,YH=48,HATW=56,HATH=50;
+
+var FALL0 = 0.85;
+var SOFT_DROP_MULT = 8;
+var SPAWN0 = 1500;
+var SPAWN_MIN = 450;
+var MAX_ONSCREEN = 6;
+var RUSH_BONUS_MAX = 15;
+var HOLD_THRESHOLD = 150;
+var DOUBLE_TAP_MS = 350;
 
 /* ═══════ STATE ═══════ */
-let W,H,ctx,dpr;
-let state="menu";
-let score,lives,combo,bestCombo,level;
-let active=[];
-let ys=[], idC=0, spawnT=null;
-let floats=[];
-let laneW;
-let personalBest=0;
+var W,H,ctx,dpr;
+var state="menu";
+var score,lives,combo,bestCombo,level;
+var active=[];
+var ys=[], idC=0, spawnT=null;
+var floats=[];
+var laneW;
+var personalBest=0;
+var playerName="";
 
-let softDropping=false;
-let holdTimer=null;
-let holdStartTime=0;
-let lastTapTime=0;
-let lastTapLane=-1;
+var softDropping=false;
+var holdTimer=null;
+var holdStartTime=0;
+var lastTapTime=0;
+var lastTapLane=-1;
 
-let hardDropTrails=[];
-let shakeX=0, shakeY=0;
+var hardDropTrails=[];
+var shakeX=0, shakeY=0;
 
-const canvas=document.getElementById("c");
-const overlay=document.getElementById("overlay");
+var canvas=document.getElementById("c");
+var overlay=document.getElementById("overlay");
 
-let hatZoneTop=0;
+var hatZoneTop=0;
 
-/* ═══════ STORAGE (localStorage — works on any hosted site) ═══════ */
+/* ═══════ STORAGE ═══════ */
 function loadData(){
   try{ personalBest=parseInt(localStorage.getItem("yhPB"))||0; }catch(e){}
+  try{ playerName=localStorage.getItem("yh_name")||""; }catch(e){}
 }
 function savePersonalBest(s){
   personalBest=s;
   try{ localStorage.setItem("yhPB",String(s)); }catch(e){}
 }
+function saveName(n){
+  playerName=n;
+  try{ localStorage.setItem("yh_name",n); }catch(e){}
+}
 
 /* ═══════ COLOR UTIL ═══════ */
-function dk(hex,a){let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgb(${Math.max(0,r*(1-a))|0},${Math.max(0,g*(1-a))|0},${Math.max(0,b*(1-a))|0})`}
-function lt(hex,a){let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgb(${Math.min(255,r+(255-r)*a)|0},${Math.min(255,g+(255-g)*a)|0},${Math.min(255,b+(255-b)*a)|0})`}
+function dk(hex,a){var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return"rgb("+(Math.max(0,r*(1-a))|0)+","+(Math.max(0,g*(1-a))|0)+","+(Math.max(0,b*(1-a))|0)+")"}
+function lt(hex,a){var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return"rgb("+(Math.min(255,r+(255-r)*a)|0)+","+(Math.min(255,g+(255-g)*a)|0)+","+(Math.min(255,b+(255-b)*a)|0)+")"}
 function hexRgb(hex){return[parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]}
 
 /* ═══════ RESIZE ═══════ */
@@ -123,8 +197,8 @@ function resize(){
   dpr=window.devicePixelRatio||1;
   W=Math.min(420,window.innerWidth);
   H=window.innerHeight;
-  canvas.width=W*dpr;canvas.height=H*dpr;
-  canvas.style.width=W+"px";canvas.style.height=H+"px";
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  canvas.style.width=W+"px"; canvas.style.height=H+"px";
   ctx=canvas.getContext("2d");
   ctx.setTransform(dpr,0,0,dpr,0,0);
   laneW=W/NLANES;
@@ -135,8 +209,8 @@ resize();
 
 /* ═══════ DRAW HELPERS ═══════ */
 function drawY(x,y,ci,sz,ghost){
-  const c=COLORS[ci],lc=lt(c,.3);
-  const s=sz||1;
+  var c=COLORS[ci],lc=lt(c,.3);
+  var s=sz||1;
   ctx.lineCap="round";
   ctx.lineWidth=4.5*s;
   if(ghost){ ctx.globalAlpha=0.18; }
@@ -162,7 +236,7 @@ function drawY(x,y,ci,sz,ghost){
 }
 
 function drawHatFlipped(cx,ty,type,color){
-  const d=dk(color,.25),l=lt(color,.22);
+  var d=dk(color,.25),l=lt(color,.22);
   ctx.lineWidth=0;
   ctx.save();
   ctx.translate(cx, ty+25);
@@ -208,11 +282,11 @@ function drawHatFlipped(cx,ty,type,color){
       ctx.lineTo(cx+26,ty+50-42);ctx.lineTo(cx+22,ty+50-20);
       ctx.closePath();ctx.fill();
       ctx.fillStyle=l;
-      [[-26,-42],[0,-48],[26,-42]].forEach(([ox,oy])=>{
-        ctx.beginPath();ctx.arc(cx+ox,ty+50+oy,3.5,0,Math.PI*2);ctx.fill();
+      [[-26,-42],[0,-48],[26,-42]].forEach(function(p){
+        ctx.beginPath();ctx.arc(cx+p[0],ty+50+p[1],3.5,0,Math.PI*2);ctx.fill();
       });
       ctx.fillStyle="#fff";ctx.globalAlpha=.2;
-      [-8,0,8].forEach(ox=>{
+      [-8,0,8].forEach(function(ox){
         ctx.beginPath();ctx.arc(cx+ox,ty+50-12,3,0,Math.PI*2);ctx.fill();
       });
       ctx.globalAlpha=1;
@@ -225,7 +299,7 @@ function drawHatFlipped(cx,ty,type,color){
       ctx.beginPath();ctx.ellipse(cx,ty+50-18,25,24,0,Math.PI,Math.PI*2);ctx.fill();
       ctx.fillRect(cx-25,ty+50-18,50,12);
       ctx.strokeStyle=d;ctx.lineWidth=2;ctx.globalAlpha=.2;
-      [-10,0,10].forEach(ox=>{
+      [-10,0,10].forEach(function(ox){
         ctx.beginPath();ctx.moveTo(cx+ox,ty+50-40);ctx.lineTo(cx+ox*1.1,ty+50-8);ctx.stroke();
       });
       ctx.globalAlpha=1;
@@ -245,14 +319,15 @@ function roundRect(x,y,w,h,r,fill){
 }
 
 /* ═══════ STARS BG ═══════ */
-let stars=[];
-for(let i=0;i<60;i++) stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.2+.4,a:Math.random()*.3+.1});
-let starOff=0;
+var stars=[];
+for(var i=0;i<60;i++) stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.2+.4,a:Math.random()*.3+.1});
+var starOff=0;
 function drawStars(){
   starOff=(starOff+.15)%H;
   ctx.save();
-  for(const s of stars){
-    ctx.fillStyle=`rgba(255,255,255,${s.a})`;
+  for(var i=0;i<stars.length;i++){
+    var s=stars[i];
+    ctx.fillStyle="rgba(255,255,255,"+s.a+")";
     ctx.beginPath();
     ctx.arc(s.x*W,(s.y*H+starOff)%H,s.r,0,Math.PI*2);
     ctx.fill();
@@ -260,183 +335,162 @@ function drawStars(){
   ctx.restore();
 }
 
-/* ═══════ SCREENSHOT RESULT CARD ═══════ */
+/* ═══════ SCREENSHOT ═══════ */
 function generateResultImage(finalScore, finalLevel, finalBestCombo, isNewPB){
-  const sw=400, sh=300;
-  const sc=document.getElementById("shotCanvas");
+  var sw=400, sh=300;
+  var sc=document.getElementById("shotCanvas");
   sc.width=sw*2; sc.height=sh*2;
   sc.style.width=sw+"px"; sc.style.height=sh+"px";
-  const sx=sc.getContext("2d");
+  var sx=sc.getContext("2d");
   sx.setTransform(2,0,0,2,0,0);
-
-  // Background
-  const grad=sx.createLinearGradient(0,0,sw,sh);
-  grad.addColorStop(0,"#1a1025");
-  grad.addColorStop(1,"#2d1b4e");
-  sx.fillStyle=grad;
-  sx.fillRect(0,0,sw,sh);
-
-  // Stars
-  for(let i=0;i<30;i++){
-    sx.fillStyle=`rgba(255,255,255,${Math.random()*.25+.05})`;
-    sx.beginPath();
-    sx.arc(Math.random()*sw, Math.random()*sh, Math.random()*1.2+.3, 0, Math.PI*2);
-    sx.fill();
-  }
-
-  // Title
+  var grad=sx.createLinearGradient(0,0,sw,sh);
+  grad.addColorStop(0,"#1a1025");grad.addColorStop(1,"#2d1b4e");
+  sx.fillStyle=grad;sx.fillRect(0,0,sw,sh);
+  for(var i=0;i<30;i++){sx.fillStyle="rgba(255,255,255,"+(Math.random()*.25+.05)+")";sx.beginPath();sx.arc(Math.random()*sw, Math.random()*sh, Math.random()*1.2+.3, 0, Math.PI*2);sx.fill();}
   sx.textAlign="center";
-  sx.font="700 28px 'Lilita One',cursive";
-  sx.fillStyle="#f472b6";
-  sx.shadowColor="#7c3aed";
-  sx.shadowBlur=20;
-  sx.fillText("Y's & Hats",sw/2,45);
-  sx.shadowBlur=0;
-
-  // Score
-  sx.font="700 64px 'Lilita One',cursive";
-  sx.fillStyle="#fff";
+  sx.font="700 28px 'Lilita One',cursive";sx.fillStyle="#f472b6";
+  sx.shadowColor="#7c3aed";sx.shadowBlur=20;
+  sx.fillText("Y's & Hats",sw/2,45);sx.shadowBlur=0;
+  sx.font="700 64px 'Lilita One',cursive";sx.fillStyle="#fff";
   sx.fillText(finalScore,sw/2,130);
-
-  // Details
-  sx.font="500 16px 'Quicksand',sans-serif";
-  sx.fillStyle="#c4b5fd";
-  sx.fillText(`Level ${finalLevel}  ·  Best Combo: ${finalBestCombo}x`,sw/2,165);
-
-  // New high score badge
-  if(isNewPB){
-    sx.font="700 18px 'Lilita One',cursive";
-    sx.fillStyle="#fbbf24";
-    sx.fillText("★ NEW HIGH SCORE ★",sw/2,200);
-  }
-
-  // Personal best
-  sx.font="500 14px 'Quicksand',sans-serif";
-  sx.fillStyle="#ffffff66";
-  sx.fillText(`Personal Best: ${personalBest}`,sw/2,235);
-
-  // Footer
-  sx.font="500 12px 'Quicksand',sans-serif";
-  sx.fillStyle="#ffffff33";
+  sx.font="500 16px 'Quicksand',sans-serif";sx.fillStyle="#c4b5fd";
+  sx.fillText("Level "+finalLevel+"  ·  Best Combo: "+finalBestCombo+"x",sw/2,165);
+  if(isNewPB){sx.font="700 18px 'Lilita One',cursive";sx.fillStyle="#fbbf24";sx.fillText("★ NEW HIGH SCORE ★",sw/2,200);}
+  sx.font="500 14px 'Quicksand',sans-serif";sx.fillStyle="#ffffff66";
+  sx.fillText("Personal Best: "+personalBest,sw/2,235);
+  sx.font="500 12px 'Quicksand',sans-serif";sx.fillStyle="#ffffff33";
   sx.fillText("Can you beat my score?",sw/2,275);
-
   return sc;
 }
 
-let screenshotDataUrl=null;
+var screenshotDataUrl=null;
 
 function takeScreenshot(){
-  const shotCanvas = generateResultImage(lastScore, lastLevel, lastBestCombo, lastIsNewPB);
+  var shotCanvas = generateResultImage(lastScore, lastLevel, lastBestCombo, lastIsNewPB);
   screenshotDataUrl = shotCanvas.toDataURL('image/png');
-
   state="screenshot";
-  overlay.innerHTML=`
-    <img src="${screenshotDataUrl}" style="width:340px;max-width:92%;border-radius:16px;box-shadow:0 8px 30px #00000088" />
-    <p style="color:#c4b5fd;font-size:13px;margin-top:12px;max-width:280px">
-      Screenshot taken! Now copy or share it.
-    </p>
-    <button class="obtn share" id="copyBtn">📋 COPY IMAGE</button>
-    <button class="obtn red" onclick="showGameOverReturn()" style="padding:10px 30px;font-size:16px;margin-top:6px">BACK</button>
-  `;
-  overlay.style.display="flex";
-
-  document.getElementById("copyBtn").addEventListener("click",async()=>{
-    const btn=document.getElementById("copyBtn");
-    try{
-      const blob=await(await fetch(screenshotDataUrl)).blob();
-      await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]);
+  overlay.innerHTML='<img src="'+screenshotDataUrl+'" style="width:340px;max-width:92%;border-radius:16px;box-shadow:0 8px 30px #00000088" />'
+    +'<p style="color:#c4b5fd;font-size:13px;margin-top:12px;max-width:280px">Screenshot taken! Now copy or share it.</p>'
+    +'<button class="obtn share" id="copyBtn">📋 COPY IMAGE</button>'
+    +'<button class="obtn red" onclick="showGameOverReturn()" style="padding:10px 30px;font-size:16px;margin-top:6px">BACK</button>';
+  overlay.style.display="flex";canvas.style.display="none";
+  document.getElementById("copyBtn").addEventListener("click",function(){
+    var btn=document.getElementById("copyBtn");
+    fetch(screenshotDataUrl).then(function(r){return r.blob()}).then(function(blob){
+      return navigator.clipboard.write([new ClipboardItem({"image/png":blob})]);
+    }).then(function(){
       btn.textContent="✅ COPIED!";
-      setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
-    }catch(e){
+      setTimeout(function(){btn.textContent="📋 COPY IMAGE";},2000);
+    }).catch(function(){
       btn.textContent="❌ Use screenshot instead";
-      setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
-    }
+      setTimeout(function(){btn.textContent="📋 COPY IMAGE";},2000);
+    });
   });
 }
 
 function emailScore(){
-  const subject=encodeURIComponent(`Y's & Hats Score: ${lastScore}!`);
-  const body=encodeURIComponent(
-    `I just scored ${lastScore} in Y's & Hats!\n\n`+
-    `Level: ${lastLevel}\n`+
-    `Best Combo: ${lastBestCombo}x\n`+
-    `Personal Best: ${personalBest}\n\n`+
-    `Can you beat my score?`
-  );
-  window.open(`mailto:wellness@adiuvo.org.uk?subject=${subject}&body=${body}`);
+  var subject=encodeURIComponent("Y's & Hats Score: "+lastScore+"!");
+  var body=encodeURIComponent("I just scored "+lastScore+" in Y's & Hats!\n\nLevel: "+lastLevel+"\nBest Combo: "+lastBestCombo+"x\nPersonal Best: "+personalBest+"\n\nCan you beat my score?");
+  window.open("mailto:wellness@adiuvo.org.uk?subject="+subject+"&body="+body);
 }
 
-let lastScore=0, lastLevel=0, lastBestCombo=0, lastIsNewPB=false;
+var lastScore=0, lastLevel=0, lastBestCombo=0, lastIsNewPB=false;
 
 window.showGameOverReturn=function(){
   showGameOverWithValues(lastScore, lastLevel, lastBestCombo, lastIsNewPB);
 }
 
-/* ═══════ OVERLAY SCREENS ═══════ */
-function showMenu(){
-  state="menu";
-  overlay.innerHTML=`
-    <h1>Y's &amp; Hats</h1>
-    <p>Sort falling Y characters into matching colored hats!</p>
-    <p style="font-size:13px;color:#ffffff77;margin-top:2px;max-width:280px">
-      <b style="color:#c4b5fd">Tap</b> a hat → send Y there<br>
-      <b style="color:#c4b5fd">Hold</b> a hat → soft drop (fast fall)<br>
-      <b style="color:#c4b5fd">Double-tap</b> → hard drop (instant slam)
-    </p>
-    <button class="obtn pink" onclick="startGame()">PLAY</button>
-    ${personalBest>0?`<div class="personal-best">Your Best: ${personalBest}</div>`:''}
-  `;
-  overlay.style.display="flex";
-}
-
-function showGameOver(){
-  state="over";
-  clearHold();
-  const isNewPB=score>personalBest&&score>0;
-  if(isNewPB) savePersonalBest(score);
-
-  lastScore=score; lastLevel=level; lastBestCombo=bestCombo; lastIsNewPB=isNewPB;
-  showGameOverWithValues(score, level, bestCombo, isNewPB);
-}
-
-function showGameOverWithValues(s, lv, bc, isNewPB){
-  state="over";
-  overlay.innerHTML=`
-    <h2>Game Over</h2>
-    <div class="big">${s}</div>
-    <div class="detail">Level ${lv} · Best combo: ${bc}x</div>
-    ${isNewPB?'<div class="gold">★ NEW HIGH SCORE ★</div>':''}
-    ${personalBest>0?`<div class="personal-best">Personal Best: ${personalBest}</div>`:''}
-    <button class="obtn share" onclick="takeScreenshot()">📸 TAKE SCREENSHOT</button>
-    <button class="obtn share" onclick="emailScore()" style="background:linear-gradient(135deg,#f472b6,#ec4899)">📧 EMAIL SCORE</button>
-    <button class="obtn red" onclick="startGame()">TRY AGAIN</button>
-  `;
-  overlay.style.display="flex";
-}
-
 /* ═══════ ACTIVE Y HELPER ═══════ */
 function getActiveY(){
-  let best=null,bestPos=-Infinity;
-  for(const y of ys){
+  var best=null,bestPos=-Infinity;
+  for(var i=0;i<ys.length;i++){
+    var y=ys[i];
     if(y.done) continue;
     if(y.y>bestPos){bestPos=y.y;best=y;}
   }
   return best;
 }
 
+/* ═══════ OVERLAY SCREENS ═══════ */
+function showMenu(){
+  state="menu";
+  overlay.innerHTML='<h1>Y\'s &amp; Hats</h1>'
+    +'<p>Sort falling Y characters into matching colored hats!</p>'
+    +'<p style="font-size:13px;color:#ffffff77;margin-top:2px;max-width:280px">'
+    +'<b style="color:#c4b5fd">Tap</b> a hat → send Y there<br>'
+    +'<b style="color:#c4b5fd">Hold</b> a hat → soft drop (fast fall)<br>'
+    +'<b style="color:#c4b5fd">Double-tap</b> → hard drop (instant slam)</p>'
+    +'<div class="nm-section"><label>Your name for the leaderboard</label>'
+    +'<input class="nm-input" id="nameIn" type="text" maxlength="16" placeholder="Enter name" value="'+escH(playerName)+'"></div>'
+    +'<button class="obtn pink" onclick="startGame()">PLAY</button>'
+    +'<button class="obtn blue" onclick="showLeaderboardScreen()" style="padding:10px 30px;font-size:16px;margin-top:8px">🏆 LEADERBOARD</button>'
+    +(personalBest>0?'<div class="personal-best">Your Best: '+personalBest+'</div>':'');
+  overlay.style.display="flex";canvas.style.display="none";
+  document.getElementById("nameIn").addEventListener("input",function(e){
+    saveName(e.target.value.trim());
+  });
+}
+
+window.showLeaderboardScreen=function(){
+  state="leaderboard";
+  overlay.innerHTML='<h2 style="font-size:32px">🏆 Leaderboard</h2>'
+    +'<div class="lb" id="lbBox"><div style="color:#c4b5fd;text-align:center;font-size:13px;padding:10px">Loading...</div></div>'
+    +'<button class="obtn pink" onclick="showMenu()" style="padding:10px 30px;font-size:16px;margin-top:8px">BACK</button>';
+  overlay.style.display="flex";canvas.style.display="none";
+  loadLB();
+}
+
+function showGameOver(){
+  state="over";
+  clearHold();
+  var isNewPB=score>personalBest&&score>0;
+  if(isNewPB) savePersonalBest(score);
+  lastScore=score; lastLevel=level; lastBestCombo=bestCombo; lastIsNewPB=isNewPB;
+  if(playerName&&score>0){
+    postScore(playerName,score).then(function(){
+      showGameOverWithValues(score, level, bestCombo, isNewPB);
+    });
+  } else {
+    showGameOverWithValues(score, level, bestCombo, isNewPB);
+  }
+}
+
+function showGameOverWithValues(s, lv, bc, isNewPB){
+  state="over";
+  overlay.innerHTML='<h2>Game Over</h2>'
+    +'<div class="big">'+s+'</div>'
+    +'<div class="detail">Level '+lv+' · Best combo: '+bc+'x</div>'
+    +(isNewPB?'<div class="gold">★ NEW HIGH SCORE ★</div>':'')
+    +(personalBest>0?'<div class="personal-best">Personal Best: '+personalBest+'</div>':'')
+    +'<button class="obtn share" onclick="takeScreenshot()">📸 SCREENSHOT</button>'
+    +'<button class="obtn share" onclick="emailScore()" style="background:linear-gradient(135deg,#f472b6,#ec4899)">📧 EMAIL SCORE</button>'
+    +'<button class="obtn red" onclick="startGame()">TRY AGAIN</button>'
+    +'<div class="lb" id="lbBox"></div>'
+    +'<button class="obtn pink" onclick="showMenu()" style="padding:10px 30px;font-size:16px;margin-top:8px;margin-bottom:20px">MENU</button>';
+  overlay.style.display="flex";canvas.style.display="none";
+  loadLB(playerName, lastScore);
+}
+
 /* ═══════ GAME START ═══════ */
 window.startGame=function(){
+  var inp=document.getElementById("nameIn");
+  if(inp) saveName(inp.value.trim());
+  if(!playerName){
+    if(inp){inp.style.borderColor="#ef4444";inp.focus();return;}
+  }
+
   score=0;lives=3;combo=0;bestCombo=0;level=1;
   ys=[];floats=[];idC=0;hardDropTrails=[];
   clearHold();
   lastTapTime=0;lastTapLane=-1;
   shakeX=0;shakeY=0;
 
-  const arr=[0,1,2,3,4];
-  for(let i=4;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}
+  var arr=[0,1,2,3,4];
+  for(var i=4;i>0;i--){var j=Math.floor(Math.random()*(i+1));var tmp=arr[i];arr[i]=arr[j];arr[j]=tmp;}
   active=arr.slice(0,NLANES);
 
-  overlay.style.display="none";
+  overlay.style.display="none";canvas.style.display="block";
+  resize();
   state="playing";
 
   if(spawnT) clearInterval(spawnT);
@@ -453,162 +507,137 @@ function clearHold(){
 
 /* ═══════ CANVAS TAP → LANE DETECTION ═══════ */
 function getLaneFromX(px){
-  const lane=Math.floor(px/laneW);
+  var lane=Math.floor(px/laneW);
   return Math.max(0,Math.min(NLANES-1,lane));
 }
 
-canvas.addEventListener("pointerdown",(e)=>{
+/* Handle touch on canvas */
+canvas.addEventListener("touchstart",function(e){
   if(state!=="playing") return;
   e.preventDefault();
-  const rect=canvas.getBoundingClientRect();
-  const x=e.clientX-rect.left;
-  const lane=getLaneFromX(x);
-  handleDown(lane);
-});
+  var touch=e.touches[0];
+  var rect=canvas.getBoundingClientRect();
+  var x=touch.clientX-rect.left;
+  handleDown(getLaneFromX(x));
+},{passive:false});
 
-canvas.addEventListener("pointerup",(e)=>{
+canvas.addEventListener("touchend",function(e){
   if(state!=="playing") return;
   e.preventDefault();
   clearHold();
+},{passive:false});
+
+canvas.addEventListener("touchmove",function(e){
+  if(state!=="playing") return;
+  e.preventDefault();
+},{passive:false});
+
+/* Handle mouse on canvas (desktop) */
+canvas.addEventListener("mousedown",function(e){
+  if(state!=="playing") return;
+  e.preventDefault();
+  var rect=canvas.getBoundingClientRect();
+  var x=e.clientX-rect.left;
+  handleDown(getLaneFromX(x));
 });
 
-canvas.addEventListener("pointercancel",()=>{
+canvas.addEventListener("mouseup",function(e){
+  if(state!=="playing") return;
   clearHold();
 });
 
-canvas.addEventListener("contextmenu",(e)=>e.preventDefault());
+canvas.addEventListener("contextmenu",function(e){e.preventDefault()});
 
 function handleDown(lane){
   if(state!=="playing") return;
-  const now=performance.now();
-
+  var now=performance.now();
   moveTo(lane);
-
   if(lane===lastTapLane && (now-lastTapTime)<DOUBLE_TAP_MS){
     hardDrop(lane);
-    lastTapTime=0;
-    lastTapLane=-1;
-    clearHold();
-    return;
+    lastTapTime=0;lastTapLane=-1;clearHold();return;
   }
-
-  lastTapTime=now;
-  lastTapLane=lane;
-
-  clearHold();
-  holdStartTime=now;
-
-  holdTimer=setTimeout(()=>{
-    softDropping=true;
-  }, HOLD_THRESHOLD);
+  lastTapTime=now;lastTapLane=lane;
+  clearHold();holdStartTime=now;
+  holdTimer=setTimeout(function(){softDropping=true;}, HOLD_THRESHOLD);
 }
 
 /* ═══════ MOVE & DROP ═══════ */
 function moveTo(laneIdx){
   if(state!=="playing") return;
-  const a=getActiveY();
-  if(!a) return;
+  var a=getActiveY();if(!a) return;
   a.lane=laneIdx;
 }
 
 function hardDrop(lane){
   if(state!=="playing") return;
-  const a=getActiveY();
-  if(!a) return;
+  var a=getActiveY();if(!a) return;
   if(lane!==undefined) a.lane=lane;
-  const targetX=a.lane*laneW+laneW/2;
-
-  hardDropTrails.push({
-    x:targetX, y0:a.y, y1:hatZoneTop-YH+8,
-    ci:a.ci, a:1
-  });
-
-  a.y=hatZoneTop-YH+10;
-  a.drawX=targetX;
-
-  shakeX=(Math.random()-.5)*3;
-  shakeY=-1.5-Math.random()*1.5;
+  var targetX=a.lane*laneW+laneW/2;
+  hardDropTrails.push({x:targetX, y0:a.y, y1:hatZoneTop-YH+8, ci:a.ci, a:1});
+  a.y=hatZoneTop-YH+10;a.drawX=targetX;
+  shakeX=(Math.random()-.5)*3;shakeY=-1.5-Math.random()*1.5;
 }
 
 /* ═══════ SPAWNING ═══════ */
-let lastSpawnTime=0;
-
-function getSpawnInterval(){
-  return Math.max(SPAWN_MIN, SPAWN0-(level-1)*120);
-}
-function getMaxOnScreen(){
-  return Math.min(MAX_ONSCREEN+Math.floor(level/2),12);
-}
+var lastSpawnTime=0;
+function getSpawnInterval(){return Math.max(SPAWN_MIN, SPAWN0-(level-1)*120);}
+function getMaxOnScreen(){return Math.min(MAX_ONSCREEN+Math.floor(level/2),12);}
 
 function trySpawn(){
   if(state!=="playing") return;
-  const now=performance.now();
+  var now=performance.now();
   if(now-lastSpawnTime<getSpawnInterval()) return;
   if(ys.length>=getMaxOnScreen()) return;
-  lastSpawnTime=now;
-  spawnOne();
+  lastSpawnTime=now;spawnOne();
 }
 
 function spawnOne(){
-  const targetLane=Math.floor(Math.random()*NLANES);
-  const ci=active[targetLane];
-  let startLane=Math.floor(Math.random()*NLANES);
+  var targetLane=Math.floor(Math.random()*NLANES);
+  var ci=active[targetLane];
+  var startLane=Math.floor(Math.random()*NLANES);
   if(Math.random()>.25) while(startLane===targetLane) startLane=Math.floor(Math.random()*NLANES);
-  ys.push({
-    id:idC++, y:-YH,
-    lane:startLane, targetLane,
-    ci, drawX:startLane*laneW+laneW/2,
-    spawnTime:performance.now(),
-  });
+  ys.push({id:idC++, y:-YH, lane:startLane, targetLane:targetLane, ci:ci, drawX:startLane*laneW+laneW/2, spawnTime:performance.now()});
 }
 
 /* ═══════ MAIN LOOP ═══════ */
-let lastT=0;
+var lastT=0;
 function loop(t){
-  const dt=Math.min(t-lastT,32);lastT=t;
+  var dt=Math.min(t-lastT,32);lastT=t;
   requestAnimationFrame(loop);
-
   ctx.save();
   ctx.translate(shakeX, shakeY);
   shakeX*=0.8; shakeY*=0.8;
   if(Math.abs(shakeX)<0.1) shakeX=0;
   if(Math.abs(shakeY)<0.1) shakeY=0;
-
   ctx.clearRect(-10,-10,W+20,H+20);
-  ctx.fillStyle="#1a1025";
-  ctx.fillRect(-10,-10,W+20,H+20);
+  ctx.fillStyle="#1a1025";ctx.fillRect(-10,-10,W+20,H+20);
   drawStars();
-
   if(state==="playing") updateGame(dt);
   if(state==="playing") drawGame();
-
   ctx.restore();
 }
 
 function updateGame(dt){
-  const baseSpeed=(FALL0+(level-1)*.18)*(dt/16);
-  const toRemove=new Set();
-  const activeY=getActiveY();
-
-  for(const y of ys){
-    const isActive=(y===activeY);
-    const spd=isActive&&softDropping ? baseSpeed*SOFT_DROP_MULT : baseSpeed;
+  var baseSpeed=(FALL0+(level-1)*.18)*(dt/16);
+  var toRemove={};
+  var activeY=getActiveY();
+  for(var i=0;i<ys.length;i++){
+    var y=ys[i];
+    var isActive=(y===activeY);
+    var spd=isActive&&softDropping ? baseSpeed*SOFT_DROP_MULT : baseSpeed;
     y.y+=spd;
-
-    const tx=y.lane*laneW+laneW/2;
+    var tx=y.lane*laneW+laneW/2;
     y.drawX+=(tx-y.drawX)*.22;
-
     if(y.y+YH>hatZoneTop+8&&!y.done){
-      y.done=true;
-      toRemove.add(y.id);
+      y.done=true;toRemove[y.id]=true;
       if(y.lane===y.targetLane){
-        const elapsed=performance.now()-y.spawnTime;
-        const rushBonus=Math.max(0,Math.round(RUSH_BONUS_MAX*(1-elapsed/8000)));
-        const pts=10+Math.floor(combo*5)+level*2+rushBonus;
+        var elapsed=performance.now()-y.spawnTime;
+        var rushBonus=Math.max(0,Math.round(RUSH_BONUS_MAX*(1-elapsed/8000)));
+        var pts=10+Math.floor(combo*5)+level*2+rushBonus;
         score+=pts;combo++;
         if(combo>bestCombo)bestCombo=combo;
         if(score>120*level)level++;
-        const bonusTxt=rushBonus>0?` +${rushBonus}⚡`:'';
+        var bonusTxt=rushBonus>0?' +'+rushBonus+'⚡':'';
         addFloat(y.drawX,hatZoneTop-20,"+"+pts+bonusTxt,COLORS[y.ci]);
       } else {
         lives--;combo=0;
@@ -616,149 +645,71 @@ function updateGame(dt){
       }
     }
   }
-
-  ys=ys.filter(y=>!toRemove.has(y.id));
-
-  for(const f of floats){f.y-=1.5;f.a-=.02;}
-  floats=floats.filter(f=>f.a>0);
-
-  for(const tr of hardDropTrails){tr.a-=.08;}
-  hardDropTrails=hardDropTrails.filter(tr=>tr.a>0);
-
-  if(lives<=0){
-    if(spawnT)clearInterval(spawnT);
-    showGameOver();
-  }
+  var newYs=[];
+  for(var i=0;i<ys.length;i++){if(!toRemove[ys[i].id])newYs.push(ys[i]);}
+  ys=newYs;
+  var newFloats=[];
+  for(var i=0;i<floats.length;i++){floats[i].y-=1.5;floats[i].a-=.02;if(floats[i].a>0)newFloats.push(floats[i]);}
+  floats=newFloats;
+  var newTrails=[];
+  for(var i=0;i<hardDropTrails.length;i++){hardDropTrails[i].a-=.08;if(hardDropTrails[i].a>0)newTrails.push(hardDropTrails[i]);}
+  hardDropTrails=newTrails;
+  if(lives<=0){if(spawnT)clearInterval(spawnT);showGameOver();}
 }
 
-function addFloat(x,y,txt,color){
-  floats.push({x,y,txt,color,a:1});
-}
+function addFloat(x,y,txt,color){floats.push({x:x,y:y,txt:txt,color:color,a:1});}
 
 function drawGame(){
-  ctx.strokeStyle="rgba(255,255,255,.06)";
-  ctx.lineWidth=1;
-  for(let i=1;i<NLANES;i++){
-    ctx.beginPath();ctx.moveTo(i*laneW,0);ctx.lineTo(i*laneW,hatZoneTop);ctx.stroke();
+  ctx.strokeStyle="rgba(255,255,255,.06)";ctx.lineWidth=1;
+  for(var i=1;i<NLANES;i++){ctx.beginPath();ctx.moveTo(i*laneW,0);ctx.lineTo(i*laneW,hatZoneTop);ctx.stroke();}
+  for(var i=0;i<NLANES;i++){drawHatFlipped(i*laneW+laneW/2, hatZoneTop+6, active[i], COLORS[active[i]]);}
+  for(var i=0;i<NLANES;i++){
+    var rgb=hexRgb(COLORS[active[i]]);
+    var grad=ctx.createLinearGradient(0,hatZoneTop-30,0,hatZoneTop+10);
+    grad.addColorStop(0,"rgba("+rgb[0]+","+rgb[1]+","+rgb[2]+",0)");
+    grad.addColorStop(1,"rgba("+rgb[0]+","+rgb[1]+","+rgb[2]+",.08)");
+    ctx.fillStyle=grad;ctx.fillRect(i*laneW,hatZoneTop-30,laneW,40);
   }
-
-  for(let i=0;i<NLANES;i++){
-    const cx=i*laneW+laneW/2;
-    drawHatFlipped(cx, hatZoneTop+6, active[i], COLORS[active[i]]);
-  }
-
-  for(let i=0;i<NLANES;i++){
-    const [r,g,b]=hexRgb(COLORS[active[i]]);
-    const grad=ctx.createLinearGradient(0,hatZoneTop-30,0,hatZoneTop+10);
-    grad.addColorStop(0,`rgba(${r},${g},${b},0)`);
-    grad.addColorStop(1,`rgba(${r},${g},${b},.08)`);
-    ctx.fillStyle=grad;
-    ctx.fillRect(i*laneW,hatZoneTop-30,laneW,40);
-  }
-
-  for(const tr of hardDropTrails){
-    const [r,g,b]=hexRgb(COLORS[tr.ci]);
-    ctx.fillStyle=`rgba(${r},${g},${b},${tr.a*0.25})`;
+  for(var i=0;i<hardDropTrails.length;i++){
+    var tr=hardDropTrails[i];var rgb=hexRgb(COLORS[tr.ci]);
+    ctx.fillStyle="rgba("+rgb[0]+","+rgb[1]+","+rgb[2]+","+(tr.a*0.25)+")";
     ctx.fillRect(tr.x-2,tr.y0,4,tr.y1-tr.y0);
   }
-
-  const activeY=getActiveY();
-
-  if(activeY){
-    const ghostX=activeY.lane*laneW+laneW/2;
-    const ghostY=hatZoneTop-YH+8;
-    drawY(ghostX, ghostY, activeY.ci, 1, true);
-  }
-
-  for(const y of ys){
-    drawY(y.drawX, y.y, y.ci, 1, false);
-  }
-
+  var activeY=getActiveY();
+  if(activeY){drawY(activeY.lane*laneW+laneW/2, hatZoneTop-YH+8, activeY.ci, 1, true);}
+  for(var i=0;i<ys.length;i++){drawY(ys[i].drawX, ys[i].y, ys[i].ci, 1, false);}
   if(activeY && softDropping){
-    const ax=activeY.drawX, ay=activeY.y;
-    ctx.strokeStyle=COLORS[activeY.ci];
-    ctx.lineWidth=1;
-    ctx.globalAlpha=0.25;
-    for(let i=0;i<3;i++){
-      const ox=(i-1)*7;
-      ctx.beginPath();
-      ctx.moveTo(ax+ox, ay-10-i*5);
-      ctx.lineTo(ax+ox, ay-10-i*5+6);
-      ctx.stroke();
-    }
+    var ax=activeY.drawX, ay=activeY.y;
+    ctx.strokeStyle=COLORS[activeY.ci];ctx.lineWidth=1;ctx.globalAlpha=0.25;
+    for(var i=0;i<3;i++){var ox=(i-1)*7;ctx.beginPath();ctx.moveTo(ax+ox, ay-10-i*5);ctx.lineTo(ax+ox, ay-10-i*5+6);ctx.stroke();}
     ctx.globalAlpha=1;
   }
-
-  ctx.textAlign="center";
-  ctx.font="700 22px 'Lilita One',cursive";
-  for(const f of floats){
-    ctx.globalAlpha=Math.max(0,f.a);
-    ctx.fillStyle=f.color;
-    ctx.fillText(f.txt,f.x,f.y);
-  }
+  ctx.textAlign="center";ctx.font="700 22px 'Lilita One',cursive";
+  for(var i=0;i<floats.length;i++){var f=floats[i];ctx.globalAlpha=Math.max(0,f.a);ctx.fillStyle=f.color;ctx.fillText(f.txt,f.x,f.y);}
   ctx.globalAlpha=1;
-
-  ctx.textAlign="left";
-  ctx.font="20px sans-serif";
-  ctx.fillText("❤️".repeat(Math.max(0,lives))+"🖤".repeat(Math.max(0,3-lives)),12,30);
-
-  ctx.textAlign="center";
-  ctx.font="700 16px 'Lilita One',cursive";
-  ctx.fillStyle="#c4b5fd";
-  ctx.fillText("Lv."+level,W/2,28);
-
-  ctx.textAlign="right";
-  ctx.font="700 24px 'Lilita One',cursive";
-  ctx.fillStyle="#fbbf24";
-  ctx.fillText(score,W-12,30);
-
-  if(personalBest>0){
-    ctx.textAlign="right";
-    ctx.font="700 11px 'Lilita One',cursive";
-    ctx.fillStyle="#ffffff44";
-    ctx.fillText("BEST: "+personalBest,W-12,46);
-  }
-
-  if(combo>1){
-    ctx.textAlign="center";
-    ctx.font="700 15px 'Lilita One',cursive";
-    ctx.fillStyle="#34d399";
-    ctx.fillText(combo+"x COMBO!",W/2,48);
-  }
+  ctx.textAlign="left";ctx.font="20px sans-serif";
+  var hearts="";for(var i=0;i<Math.max(0,lives);i++)hearts+="❤️";for(var i=0;i<Math.max(0,3-lives);i++)hearts+="🖤";
+  ctx.fillText(hearts,12,30);
+  ctx.textAlign="center";ctx.font="700 16px 'Lilita One',cursive";ctx.fillStyle="#c4b5fd";ctx.fillText("Lv."+level,W/2,28);
+  ctx.textAlign="right";ctx.font="700 24px 'Lilita One',cursive";ctx.fillStyle="#fbbf24";ctx.fillText(score,W-12,30);
+  if(personalBest>0){ctx.textAlign="right";ctx.font="700 11px 'Lilita One',cursive";ctx.fillStyle="#ffffff44";ctx.fillText("BEST: "+personalBest,W-12,46);}
+  if(combo>1){ctx.textAlign="center";ctx.font="700 15px 'Lilita One',cursive";ctx.fillStyle="#34d399";ctx.fillText(combo+"x COMBO!",W/2,48);}
 }
 
 /* ═══════ KEYBOARD ═══════ */
-let keysDown=new Set();
-
-document.addEventListener("keydown",e=>{
+var keysDown={};
+document.addEventListener("keydown",function(e){
   if(state!=="playing") return;
-  const k=e.key.toLowerCase();
-
-  let lane=-1;
+  var k=e.key.toLowerCase();
+  var lane=-1;
   if(k>="1"&&k<="4") lane=parseInt(k)-1;
-  else if(k==="a") lane=0;
-  else if(k==="s") lane=1;
-  else if(k==="d") lane=2;
-  else if(k==="f") lane=3;
-
-  if(lane>=0 && !keysDown.has(k)){
-    keysDown.add(k);
-    handleDown(lane);
-  }
-
-  if(k==="arrowdown"||k===" "){
-    e.preventDefault();
-    const a=getActiveY();
-    if(a) hardDrop(a.lane);
-  }
+  else if(k==="a") lane=0;else if(k==="s") lane=1;else if(k==="d") lane=2;else if(k==="f") lane=3;
+  if(lane>=0 && !keysDown[k]){keysDown[k]=true;handleDown(lane);}
+  if(k==="arrowdown"||k===" "){e.preventDefault();var a=getActiveY();if(a) hardDrop(a.lane);}
 });
-
-document.addEventListener("keyup",e=>{
-  const k=e.key.toLowerCase();
-  if(keysDown.has(k)){
-    keysDown.delete(k);
-    clearHold();
-  }
+document.addEventListener("keyup",function(e){
+  var k=e.key.toLowerCase();
+  if(keysDown[k]){delete keysDown[k];clearHold();}
 });
 
 /* ═══════ INIT ═══════ */
