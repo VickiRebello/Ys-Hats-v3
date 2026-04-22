@@ -48,9 +48,11 @@ canvas{display:block;margin:0 auto;}
 .obtn:active{transform:scale(.94)}
 .obtn.pink{background:linear-gradient(135deg,#f472b6,#7c3aed)}
 .obtn.red{background:linear-gradient(135deg,#f472b6,#ef4444)}
+.obtn.purple{background:linear-gradient(135deg,#a78bfa,#7c3aed);padding:12px 36px;font-size:18px}
+.obtn.ghost{background:transparent;border:2px solid #a78bfa55;padding:10px 30px;font-size:16px;box-shadow:none;color:#a78bfa}
 
 .lb-table{
-  width:100%;max-width:300px;margin:12px auto 0;
+  width:100%;max-width:320px;margin:12px auto 0;
   border-collapse:collapse;
 }
 .lb-table th{
@@ -67,8 +69,12 @@ canvas{display:block;margin:0 auto;}
   border-bottom:1px solid #ffffff0a;
 }
 .lb-table td:last-child{text-align:right;color:#fbbf24;font-family:'Lilita One',cursive;}
-.lb-table tr.me td{color:#f472b6;}
+.lb-table tr.me td{color:#f472b6;font-weight:700}
 .lb-table tr.me td:last-child{color:#f472b6;}
+.lb-table tr.sep td{
+  color:#ffffff33;font-size:11px;text-align:center;
+  border-bottom:none;padding:2px;
+}
 
 .name-input{
   background:#2a1f3d;border:2px solid #7c3aed;
@@ -90,6 +96,13 @@ canvas{display:block;margin:0 auto;}
   margin-top:8px;
   opacity:.7;
 }
+.rank-badge{
+  font-family:'Lilita One',cursive;
+  font-size:20px;
+  color:#a78bfa;
+  margin-top:8px;
+}
+.rank-badge span{color:#fbbf24;font-size:26px}
 </style>
 </head>
 <body>
@@ -122,7 +135,7 @@ let floats=[];
 let laneW;
 let personalBest=0;
 let playerName="";
-let leaderboard=[];
+let allScores=[]; // [{name, score, ts}] — every score from all users
 
 let softDropping=false;
 let holdTimer=null;
@@ -136,14 +149,20 @@ let shakeX=0, shakeY=0;
 const canvas=document.getElementById("c");
 const overlay=document.getElementById("overlay");
 
-/* Hat zone: bottom area of the canvas where hats sit and taps are detected */
-let hatZoneTop=0; // set in resize
+let hatZoneTop=0;
 
 /* ═══════ STORAGE ═══════ */
 async function loadData(){
   try{const pb=await window.storage.get("personalBest");if(pb)personalBest=parseInt(pb.value)||0;}catch(e){}
   try{const pn=await window.storage.get("playerName");if(pn)playerName=pn.value||"";}catch(e){}
-  try{const lb=await window.storage.get("leaderboard",true);if(lb)leaderboard=JSON.parse(lb.value)||[];}catch(e){leaderboard=[];}
+  await loadAllScores();
+}
+async function loadAllScores(){
+  try{
+    const data=await window.storage.get("allScores",true);
+    if(data) allScores=JSON.parse(data.value)||[];
+  }catch(e){allScores=[];}
+  allScores.sort((a,b)=>b.score-a.score);
 }
 async function savePersonalBest(s){
   personalBest=s;
@@ -153,15 +172,14 @@ async function savePlayerName(n){
   playerName=n;
   try{await window.storage.set("playerName",n);}catch(e){}
 }
-async function saveToLeaderboard(name,s){
+async function saveScore(name,s){
   try{
-    try{const lb=await window.storage.get("leaderboard",true);if(lb)leaderboard=JSON.parse(lb.value)||[];}catch(e){}
-    const idx=leaderboard.findIndex(e=>e.name.toLowerCase()===name.toLowerCase());
-    if(idx>=0){if(s>leaderboard[idx].score)leaderboard[idx].score=s;}
-    else{leaderboard.push({name,score:s});}
-    leaderboard.sort((a,b)=>b.score-a.score);
-    leaderboard=leaderboard.slice(0,20);
-    await window.storage.set("leaderboard",JSON.stringify(leaderboard),true);
+    await loadAllScores(); // refresh to avoid stale data
+    allScores.push({name, score:s, ts:Date.now()});
+    allScores.sort((a,b)=>b.score-a.score);
+    // Keep top 200 scores
+    allScores=allScores.slice(0,200);
+    await window.storage.set("allScores",JSON.stringify(allScores),true);
   }catch(e){}
 }
 
@@ -191,9 +209,7 @@ function drawY(x,y,ci,sz,ghost){
   const s=sz||1;
   ctx.lineCap="round";
   ctx.lineWidth=4.5*s;
-
   if(ghost){ ctx.globalAlpha=0.18; }
-
   ctx.strokeStyle=c;
   ctx.beginPath();ctx.moveTo(x,y+10*s);ctx.lineTo(x-14*s,y-8*s);ctx.stroke();
   ctx.beginPath();ctx.moveTo(x,y+10*s);ctx.lineTo(x+14*s,y-8*s);ctx.stroke();
@@ -215,32 +231,21 @@ function drawY(x,y,ci,sz,ghost){
   ctx.globalAlpha=1;
 }
 
-/* ═══════ UPSIDE-DOWN HATS ═══════
-   Drawn flipped so they look like cups/catchers.
-   cx = center x, ty = top y of the upside-down hat (the opening faces UP)
-*/
 function drawHatFlipped(cx,ty,type,color){
   const d=dk(color,.25),l=lt(color,.22);
   ctx.lineWidth=0;
-
   ctx.save();
-  // Flip vertically around the hat center
   ctx.translate(cx, ty+25);
   ctx.scale(1,-1);
   ctx.translate(-cx, -(ty+25));
-
   switch(type%5){
-    case 0: // Top hat flipped → bucket catcher
-      // brim (now at top = opening)
+    case 0:
       roundRect(cx-28,ty-10+50-10,56,10,4,d);
-      // body
       roundRect(cx-16,ty-10+50-42,32,34,4,color);
-      // shine
       ctx.globalAlpha=.3;roundRect(cx-16,ty-10+50-42,32,7,3,l);ctx.globalAlpha=1;
-      // band
       ctx.globalAlpha=.5;roundRect(cx-17,ty-10+50-16,34,5,2,d);ctx.globalAlpha=1;
       break;
-    case 1: // Baseball cap flipped
+    case 1:
       ctx.fillStyle=color;
       ctx.beginPath();ctx.moveTo(cx-24,ty+50-8);
       ctx.quadraticCurveTo(cx-24,ty+50-34,cx,ty+50-36);
@@ -253,7 +258,7 @@ function drawHatFlipped(cx,ty,type,color){
       ctx.fillStyle=l;ctx.globalAlpha=.5;
       ctx.beginPath();ctx.arc(cx,ty+50-36,3.5,0,Math.PI*2);ctx.fill();
       ctx.globalAlpha=1;break;
-    case 2: // Wizard hat flipped → cone catcher
+    case 2:
       ctx.fillStyle=d;
       ctx.beginPath();ctx.ellipse(cx,ty+50-4,27,6,0,0,Math.PI*2);ctx.fill();
       roundRect(cx-26,ty+50-8,52,7,3,d);
@@ -264,7 +269,7 @@ function drawHatFlipped(cx,ty,type,color){
       ctx.beginPath();ctx.arc(cx+6,ty+50-30,2,0,Math.PI*2);ctx.fill();
       ctx.beginPath();ctx.arc(cx-2,ty+50-40,1.5,0,Math.PI*2);ctx.fill();
       ctx.globalAlpha=1;break;
-    case 3: // Crown flipped
+    case 3:
       roundRect(cx-22,ty+50-22,44,20,3,color);
       ctx.fillStyle=color;
       ctx.beginPath();
@@ -282,7 +287,7 @@ function drawHatFlipped(cx,ty,type,color){
       });
       ctx.globalAlpha=1;
       roundRect(cx-23,ty+50-4,46,4,2,d);break;
-    case 4: // Beanie flipped
+    case 4:
       ctx.fillStyle=l;ctx.globalAlpha=.7;
       ctx.beginPath();ctx.arc(cx,ty+50-42,5.5,0,Math.PI*2);ctx.fill();
       ctx.globalAlpha=1;
@@ -296,7 +301,6 @@ function drawHatFlipped(cx,ty,type,color){
       ctx.globalAlpha=1;
       roundRect(cx-25,ty+50-10,50,10,5,d);break;
   }
-
   ctx.restore();
 }
 
@@ -327,18 +331,40 @@ function drawStars(){
 }
 
 /* ═══════ LEADERBOARD HTML ═══════ */
-function leaderboardHTML(highlight){
-  if(leaderboard.length===0) return '';
+// Shows top 10 + the player's score/position if outside top 10
+function leaderboardHTML(highlightName, highlightScore, showAll){
+  if(allScores.length===0) return '<p style="color:#ffffff44;font-size:13px;margin-top:12px">No scores yet — be the first!</p>';
+
+  const top = showAll ? allScores.slice(0,50) : allScores.slice(0,10);
   let html='<div class="lb-title">LEADERBOARD</div><table class="lb-table"><tr><th>#</th><th>Name</th><th>Score</th></tr>';
-  const top10=leaderboard.slice(0,10);
-  for(let i=0;i<top10.length;i++){
-    const e=top10[i];
-    const cls=(highlight&&e.name.toLowerCase()===highlight.toLowerCase())?' class="me"':'';
-    html+=`<tr${cls}><td>${i+1}</td><td>${esc(e.name)}</td><td>${e.score}</td></tr>`;
+
+  let playerShown=false;
+
+  for(let i=0;i<top.length;i++){
+    const e=top[i];
+    const isMe=highlightName && highlightScore!==undefined
+      && e.name.toLowerCase()===highlightName.toLowerCase()
+      && e.score===highlightScore && !playerShown;
+    if(isMe) playerShown=true;
+    const cls=isMe?' class="me"':'';
+    html+=`<tr${cls}><td>${i+1}</td><td>${esc(e.name)}${isMe?' ← you':''}</td><td>${e.score}</td></tr>`;
   }
+
+  // If player's score isn't in the displayed list, show their position
+  if(!playerShown && highlightName && highlightScore!==undefined && !showAll){
+    const playerIdx=allScores.findIndex(e=>
+      e.name.toLowerCase()===highlightName.toLowerCase() && e.score===highlightScore
+    );
+    if(playerIdx>=0){
+      html+=`<tr class="sep"><td colspan="3">···</td></tr>`;
+      html+=`<tr class="me"><td>${playerIdx+1}</td><td>${esc(allScores[playerIdx].name)} ← you</td><td>${allScores[playerIdx].score}</td></tr>`;
+    }
+  }
+
   html+='</table>';
   return html;
 }
+
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 
 /* ═══════ OVERLAY SCREENS ═══════ */
@@ -354,7 +380,18 @@ function showMenu(){
     </p>
     <button class="obtn pink" onclick="startGame()">PLAY</button>
     ${personalBest>0?`<div class="personal-best">Your Best: ${personalBest}</div>`:''}
-    ${leaderboardHTML(playerName)}
+    <button class="obtn ghost" onclick="showLeaderboard()">LEADERBOARD</button>
+  `;
+  overlay.style.display="flex";
+}
+
+window.showLeaderboard=async function(){
+  state="leaderboard";
+  await loadAllScores();
+  overlay.innerHTML=`
+    <h2 style="font-size:28px">Leaderboard</h2>
+    ${leaderboardHTML(playerName, undefined, true)}
+    <button class="obtn ghost" onclick="showMenu()" style="margin-top:14px">BACK</button>
   `;
   overlay.style.display="flex";
 }
@@ -363,48 +400,64 @@ function showGameOver(){
   state="over";
   clearHold();
   const isNewPB=score>personalBest&&score>0;
+  if(isNewPB) savePersonalBest(score);
 
-  if(isNewPB){
-    state="nameinput";
-    savePersonalBest(score);
-    overlay.innerHTML=`
-      <h2>Game Over</h2>
-      <div class="big">${score}</div>
-      <div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
-      <div class="gold">★ NEW HIGH SCORE ★</div>
-      <p style="font-size:14px;color:#c4b5fd">Enter your name for the leaderboard:</p>
-      <input class="name-input" id="nameIn" type="text" maxlength="16" placeholder="Your name" value="${esc(playerName)}" autofocus>
-      <button class="obtn pink" id="submitName">SUBMIT</button>
-      <button class="obtn red" style="margin-top:8px;padding:12px 36px;font-size:18px" onclick="skipName()">SKIP</button>
-    `;
-    overlay.style.display="flex";
-    const nameIn=document.getElementById("nameIn");
-    const submitBtn=document.getElementById("submitName");
-    nameIn.focus();
-    nameIn.addEventListener("keydown",e=>{if(e.key==="Enter")submitBtn.click();});
-    submitBtn.addEventListener("click",async()=>{
-      const n=nameIn.value.trim();
-      if(n.length===0)return;
-      await savePlayerName(n);
-      await saveToLeaderboard(n,score);
-      showPostScore();
-    });
-  } else {
-    showPostScore();
-  }
-}
-
-window.skipName=async function(){showPostScore();}
-
-function showPostScore(){
-  state="over";
+  // Always ask for name to record the score
+  state="nameinput";
   overlay.innerHTML=`
     <h2>Game Over</h2>
     <div class="big">${score}</div>
     <div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
+    ${isNewPB?'<div class="gold">★ NEW HIGH SCORE ★</div>':''}
+    <p style="font-size:14px;color:#c4b5fd">Enter your name for the leaderboard:</p>
+    <input class="name-input" id="nameIn" type="text" maxlength="16" placeholder="Your name" value="${esc(playerName)}" autofocus>
+    <button class="obtn pink" id="submitName">SUBMIT</button>
+    <button class="obtn ghost" style="margin-top:8px" onclick="skipName()">SKIP</button>
+  `;
+  overlay.style.display="flex";
+  const nameIn=document.getElementById("nameIn");
+  const submitBtn=document.getElementById("submitName");
+  nameIn.focus();
+  nameIn.addEventListener("keydown",e=>{if(e.key==="Enter")submitBtn.click();});
+  submitBtn.addEventListener("click",async()=>{
+    const n=nameIn.value.trim();
+    if(n.length===0)return;
+    await savePlayerName(n);
+    await saveScore(n, score);
+    showPostScore(n, score);
+  });
+}
+
+window.skipName=async function(){
+  showPostScore(null, score);
+}
+
+async function showPostScore(name, s){
+  state="over";
+  await loadAllScores();
+
+  // Find rank
+  let rankText='';
+  if(name){
+    const idx=allScores.findIndex(e=>
+      e.name.toLowerCase()===name.toLowerCase() && e.score===s
+    );
+    if(idx>=0){
+      const rank=idx+1;
+      const total=allScores.length;
+      rankText=`<div class="rank-badge">You placed <span>#${rank}</span> of ${total}</div>`;
+    }
+  }
+
+  overlay.innerHTML=`
+    <h2>Game Over</h2>
+    <div class="big">${s}</div>
+    <div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
     ${personalBest>0?`<div class="personal-best">Personal Best: ${personalBest}</div>`:''}
-    ${leaderboardHTML(playerName)}
+    ${rankText}
+    ${leaderboardHTML(name, s, false)}
     <button class="obtn red" onclick="startGame()">TRY AGAIN</button>
+    <button class="obtn ghost" onclick="showMenu()" style="margin-top:6px">MENU</button>
   `;
   overlay.style.display="flex";
 }
@@ -448,7 +501,6 @@ function clearHold(){
 
 /* ═══════ CANVAS TAP → LANE DETECTION ═══════ */
 function getLaneFromX(px){
-  // px is in CSS pixels relative to canvas
   const lane=Math.floor(px/laneW);
   return Math.max(0,Math.min(NLANES-1,lane));
 }
@@ -480,7 +532,6 @@ function handleDown(lane){
 
   moveTo(lane);
 
-  // Double-tap check
   if(lane===lastTapLane && (now-lastTapTime)<DOUBLE_TAP_MS){
     hardDrop(lane);
     lastTapTime=0;
@@ -633,20 +684,17 @@ function addFloat(x,y,txt,color){
 }
 
 function drawGame(){
-  // lane dividers
   ctx.strokeStyle="rgba(255,255,255,.06)";
   ctx.lineWidth=1;
   for(let i=1;i<NLANES;i++){
     ctx.beginPath();ctx.moveTo(i*laneW,0);ctx.lineTo(i*laneW,hatZoneTop);ctx.stroke();
   }
 
-  // Upside-down hats as catchers
   for(let i=0;i<NLANES;i++){
     const cx=i*laneW+laneW/2;
     drawHatFlipped(cx, hatZoneTop+6, active[i], COLORS[active[i]]);
   }
 
-  // lane glow above hats
   for(let i=0;i<NLANES;i++){
     const [r,g,b]=hexRgb(COLORS[active[i]]);
     const grad=ctx.createLinearGradient(0,hatZoneTop-30,0,hatZoneTop+10);
@@ -656,7 +704,6 @@ function drawGame(){
     ctx.fillRect(i*laneW,hatZoneTop-30,laneW,40);
   }
 
-  // hard-drop trails
   for(const tr of hardDropTrails){
     const [r,g,b]=hexRgb(COLORS[tr.ci]);
     ctx.fillStyle=`rgba(${r},${g},${b},${tr.a*0.25})`;
@@ -665,19 +712,16 @@ function drawGame(){
 
   const activeY=getActiveY();
 
-  // Ghost piece
   if(activeY){
     const ghostX=activeY.lane*laneW+laneW/2;
     const ghostY=hatZoneTop-YH+8;
     drawY(ghostX, ghostY, activeY.ci, 1, true);
   }
 
-  // falling Ys
   for(const y of ys){
     drawY(y.drawX, y.y, y.ci, 1, false);
   }
 
-  // soft-drop speed lines
   if(activeY && softDropping){
     const ax=activeY.drawX, ay=activeY.y;
     ctx.strokeStyle=COLORS[activeY.ci];
@@ -693,7 +737,6 @@ function drawGame(){
     ctx.globalAlpha=1;
   }
 
-  // floats
   ctx.textAlign="center";
   ctx.font="700 22px 'Lilita One',cursive";
   for(const f of floats){
@@ -703,7 +746,6 @@ function drawGame(){
   }
   ctx.globalAlpha=1;
 
-  // HUD
   ctx.textAlign="left";
   ctx.font="20px sans-serif";
   ctx.fillText("❤️".repeat(Math.max(0,lives))+"🖤".repeat(Math.max(0,3-lives)),12,30);
