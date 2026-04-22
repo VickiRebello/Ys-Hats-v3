@@ -323,75 +323,25 @@ function generateResultImage(finalScore, finalLevel, finalBestCombo, isNewPB){
   return sc;
 }
 
-async function shareResult(){
+function takeScreenshot(){
   const isNewPB = score >= personalBest;
-  const shotCanvas = generateResultImage(score, level, bestCombo, isNewPB);
+  const shotCanvas = generateResultImage(lastScore, lastLevel, lastBestCombo, lastIsNewPB);
   const dataUrl = shotCanvas.toDataURL('image/png');
 
-  // Show share screen with the image and action buttons
-  state="sharing";
+  state="screenshot";
   overlay.innerHTML=`
-    <p style="color:#a78bfa;font-size:14px;margin-bottom:8px">Your result card:</p>
-    <img id="shotImg" src="${dataUrl}" style="width:300px;max-width:90%;border-radius:16px;box-shadow:0 8px 30px #00000088;margin-bottom:12px" />
-    <p style="color:#ffffff55;font-size:12px;margin:0">Long-press image to save, or use the buttons below</p>
-    <button class="obtn share" id="copyBtn" style="margin-top:12px">📋 COPY IMAGE</button>
-    <button class="obtn share" id="saveBtn" style="background:linear-gradient(135deg,#60a5fa,#3b82f6)">💾 SAVE IMAGE</button>
-    <button class="obtn share" id="emailBtn" style="background:linear-gradient(135deg,#f472b6,#ec4899)">📧 EMAIL SCORE</button>
-    <button class="obtn red" onclick="showGameOverReturn()" style="padding:10px 30px;font-size:16px">BACK</button>
+    <img src="${dataUrl}" style="width:340px;max-width:92%;border-radius:16px;box-shadow:0 8px 30px #00000088" />
+    <p style="color:#c4b5fd;font-size:13px;margin-top:12px;max-width:280px">
+      Screenshot this image and share it wherever you like!
+    </p>
+    <p style="color:#ffffff44;font-size:11px;margin-top:4px">
+      Send to <b style="color:#c4b5fd">wellness@adiuvo.org.uk</b>
+    </p>
+    <button class="obtn red" onclick="showGameOverReturn()" style="padding:12px 36px;font-size:18px;margin-top:14px">BACK</button>
   `;
   overlay.style.display="flex";
-
-  // Copy image to clipboard
-  document.getElementById("copyBtn").addEventListener("click",async()=>{
-    const btn=document.getElementById("copyBtn");
-    try{
-      const blob=await(await fetch(dataUrl)).blob();
-      await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]);
-      btn.textContent="✅ COPIED!";
-      setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
-    }catch(e){
-      // Fallback: copy text score
-      try{
-        await navigator.clipboard.writeText(
-          `Y's & Hats Score: ${score} | Level ${level} | Combo ${bestCombo}x | Best: ${personalBest}`
-        );
-        btn.textContent="✅ TEXT COPIED!";
-        setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
-      }catch(e2){
-        btn.textContent="❌ NOT SUPPORTED";
-        setTimeout(()=>{btn.textContent="📋 COPY IMAGE";},2000);
-      }
-    }
-  });
-
-  // Save/download image
-  document.getElementById("saveBtn").addEventListener("click",()=>{
-    const link=document.createElement('a');
-    link.download='ys-and-hats-score.png';
-    link.href=dataUrl;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    const btn=document.getElementById("saveBtn");
-    btn.textContent="✅ SAVED!";
-    setTimeout(()=>{btn.textContent="💾 SAVE IMAGE";},2000);
-  });
-
-  // Email with pre-filled address
-  document.getElementById("emailBtn").addEventListener("click",()=>{
-    const subject=encodeURIComponent(`Y's & Hats Score: ${score}!`);
-    const body=encodeURIComponent(
-      `I just scored ${score} in Y's & Hats!\n\n`+
-      `Level: ${level}\n`+
-      `Best Combo: ${bestCombo}x\n`+
-      `Personal Best: ${personalBest}\n\n`+
-      `Can you beat my score?`
-    );
-    window.open(`mailto:wellness@adiuvo.org.uk?subject=${subject}&body=${body}`,'_blank');
-  });
 }
 
-// Return to game over screen from share screen
 let lastScore=0, lastLevel=0, lastBestCombo=0, lastIsNewPB=false;
 
 window.showGameOverReturn=function(){
@@ -433,7 +383,7 @@ function showGameOverWithValues(s, lv, bc, isNewPB){
     <div class="detail">Level ${lv} · Best combo: ${bc}x</div>
     ${isNewPB?'<div class="gold">★ NEW HIGH SCORE ★</div>':''}
     ${personalBest>0?`<div class="personal-best">Personal Best: ${personalBest}</div>`:''}
-    <button class="obtn share" onclick="shareResult()">📤 SHARE SCORE</button>
+    <button class="obtn share" onclick="takeScreenshot()">📸 TAKE SCREENSHOT</button>
     <button class="obtn red" onclick="startGame()">TRY AGAIN</button>
   `;
   overlay.style.display="flex";
