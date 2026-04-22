@@ -92,27 +92,24 @@ function fetchLB(cb){
   }).then(function(rows){cb(rows,null)}).catch(function(e){cb([],e)});
 }
 function postScore(name,sc){
-  /* Check if player already has a score */
-  return fetch(SUPA_URL+"/rest/v1/leaderboard?name=eq."+encodeURIComponent(name)+"&select=id,score&limit=1",{
+  var hdrs={"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"return=minimal"};
+  /* Get player's current best */
+  return fetch(SUPA_URL+"/rest/v1/leaderboard?name=eq."+encodeURIComponent(name)+"&select=score&order=score.desc&limit=1",{
     headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY}
   }).then(function(r){return r.ok?r.json():[]}).then(function(rows){
-    if(rows.length>0){
-      /* Player exists — only update if new score is higher */
-      if(sc>rows[0].score){
-        return fetch(SUPA_URL+"/rest/v1/leaderboard?name=eq."+encodeURIComponent(name),{
-          method:"PATCH",
-          headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"return=minimal"},
-          body:JSON.stringify({score:sc})
-        });
-      }
-    } else {
-      /* New player — insert */
+    if(rows.length>0 && sc<=rows[0].score){
+      /* Existing score is higher or equal — do nothing */
+      return;
+    }
+    /* Delete all old entries for this player, then insert new best */
+    return fetch(SUPA_URL+"/rest/v1/leaderboard?name=eq."+encodeURIComponent(name),{
+      method:"DELETE",headers:hdrs
+    }).then(function(){
       return fetch(SUPA_URL+"/rest/v1/leaderboard",{
-        method:"POST",
-        headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"return=minimal"},
+        method:"POST",headers:hdrs,
         body:JSON.stringify({name:name,score:sc})
       });
-    }
+    });
   }).catch(function(e){console.error("Score submit error:",e)});
 }
 
