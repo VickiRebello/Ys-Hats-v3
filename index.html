@@ -48,65 +48,20 @@ canvas{display:block;margin:0 auto;}
 .obtn:active{transform:scale(.94)}
 .obtn.pink{background:linear-gradient(135deg,#f472b6,#7c3aed)}
 .obtn.red{background:linear-gradient(135deg,#f472b6,#ef4444)}
-.obtn.purple{background:linear-gradient(135deg,#a78bfa,#7c3aed);padding:12px 36px;font-size:18px}
-.obtn.ghost{background:transparent;border:2px solid #a78bfa55;padding:10px 30px;font-size:16px;box-shadow:none;color:#a78bfa}
-
-.lb-table{
-  width:100%;max-width:320px;margin:12px auto 0;
-  border-collapse:collapse;
-}
-.lb-table th{
-  font-family:'Lilita One',cursive;
-  color:#a78bfa;font-size:13px;
-  padding:4px 8px;
-  border-bottom:1px solid #a78bfa33;
-  text-align:left;
-}
-.lb-table th:last-child{text-align:right}
-.lb-table td{
-  color:#c4b5fd;font-size:14px;
-  padding:4px 8px;
-  border-bottom:1px solid #ffffff0a;
-}
-.lb-table td:last-child{text-align:right;color:#fbbf24;font-family:'Lilita One',cursive;}
-.lb-table tr.me td{color:#f472b6;font-weight:700}
-.lb-table tr.me td:last-child{color:#f472b6;}
-.lb-table tr.sep td{
-  color:#ffffff33;font-size:11px;text-align:center;
-  border-bottom:none;padding:2px;
-}
-
-.name-input{
-  background:#2a1f3d;border:2px solid #7c3aed;
-  color:#fff;font-family:'Quicksand',sans-serif;font-size:18px;
-  padding:12px 20px;border-radius:14px;
-  text-align:center;width:240px;
-  outline:none;margin-top:12px;
-}
-.name-input::placeholder{color:#ffffff44}
-.name-input:focus{border-color:#f472b6;box-shadow:0 0 20px #f472b644}
-
-.lb-title{
-  font-family:'Lilita One',cursive;
-  color:#a78bfa;font-size:16px;margin-top:18px;
-}
+.obtn.share{background:linear-gradient(135deg,#34d399,#059669);padding:12px 36px;font-size:18px}
 .personal-best{
   font-family:'Lilita One',cursive;
   color:#fbbf24;font-size:14px;
   margin-top:8px;
   opacity:.7;
 }
-.rank-badge{
-  font-family:'Lilita One',cursive;
-  font-size:20px;
-  color:#a78bfa;
-  margin-top:8px;
-}
-.rank-badge span{color:#fbbf24;font-size:26px}
+/* Hidden canvas for screenshot */
+#shotCanvas{position:absolute;left:-9999px;top:-9999px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<canvas id="shotCanvas"></canvas>
 <div id="overlay"></div>
 
 <script>
@@ -134,8 +89,6 @@ let ys=[], idC=0, spawnT=null;
 let floats=[];
 let laneW;
 let personalBest=0;
-let playerName="";
-let allScores=[]; // [{name, score, ts}] — every score from all users
 
 let softDropping=false;
 let holdTimer=null;
@@ -151,36 +104,13 @@ const overlay=document.getElementById("overlay");
 
 let hatZoneTop=0;
 
-/* ═══════ STORAGE ═══════ */
-async function loadData(){
-  try{const pb=await window.storage.get("personalBest");if(pb)personalBest=parseInt(pb.value)||0;}catch(e){}
-  try{const pn=await window.storage.get("playerName");if(pn)playerName=pn.value||"";}catch(e){}
-  await loadAllScores();
+/* ═══════ STORAGE (localStorage — works on any hosted site) ═══════ */
+function loadData(){
+  try{ personalBest=parseInt(localStorage.getItem("yhPB"))||0; }catch(e){}
 }
-async function loadAllScores(){
-  try{
-    const data=await window.storage.get("allScores",true);
-    if(data) allScores=JSON.parse(data.value)||[];
-  }catch(e){allScores=[];}
-  allScores.sort((a,b)=>b.score-a.score);
-}
-async function savePersonalBest(s){
+function savePersonalBest(s){
   personalBest=s;
-  try{await window.storage.set("personalBest",String(s));}catch(e){}
-}
-async function savePlayerName(n){
-  playerName=n;
-  try{await window.storage.set("playerName",n);}catch(e){}
-}
-async function saveScore(name,s){
-  try{
-    await loadAllScores(); // refresh to avoid stale data
-    allScores.push({name, score:s, ts:Date.now()});
-    allScores.sort((a,b)=>b.score-a.score);
-    // Keep top 200 scores
-    allScores=allScores.slice(0,200);
-    await window.storage.set("allScores",JSON.stringify(allScores),true);
-  }catch(e){}
+  try{ localStorage.setItem("yhPB",String(s)); }catch(e){}
 }
 
 /* ═══════ COLOR UTIL ═══════ */
@@ -330,42 +260,101 @@ function drawStars(){
   ctx.restore();
 }
 
-/* ═══════ LEADERBOARD HTML ═══════ */
-// Shows top 10 + the player's score/position if outside top 10
-function leaderboardHTML(highlightName, highlightScore, showAll){
-  if(allScores.length===0) return '<p style="color:#ffffff44;font-size:13px;margin-top:12px">No scores yet — be the first!</p>';
+/* ═══════ SCREENSHOT RESULT CARD ═══════ */
+function generateResultImage(finalScore, finalLevel, finalBestCombo, isNewPB){
+  const sw=400, sh=300;
+  const sc=document.getElementById("shotCanvas");
+  sc.width=sw*2; sc.height=sh*2;
+  sc.style.width=sw+"px"; sc.style.height=sh+"px";
+  const sx=sc.getContext("2d");
+  sx.setTransform(2,0,0,2,0,0);
 
-  const top = showAll ? allScores.slice(0,50) : allScores.slice(0,10);
-  let html='<div class="lb-title">LEADERBOARD</div><table class="lb-table"><tr><th>#</th><th>Name</th><th>Score</th></tr>';
+  // Background
+  const grad=sx.createLinearGradient(0,0,sw,sh);
+  grad.addColorStop(0,"#1a1025");
+  grad.addColorStop(1,"#2d1b4e");
+  sx.fillStyle=grad;
+  sx.fillRect(0,0,sw,sh);
 
-  let playerShown=false;
-
-  for(let i=0;i<top.length;i++){
-    const e=top[i];
-    const isMe=highlightName && highlightScore!==undefined
-      && e.name.toLowerCase()===highlightName.toLowerCase()
-      && e.score===highlightScore && !playerShown;
-    if(isMe) playerShown=true;
-    const cls=isMe?' class="me"':'';
-    html+=`<tr${cls}><td>${i+1}</td><td>${esc(e.name)}${isMe?' ← you':''}</td><td>${e.score}</td></tr>`;
+  // Stars
+  for(let i=0;i<30;i++){
+    sx.fillStyle=`rgba(255,255,255,${Math.random()*.25+.05})`;
+    sx.beginPath();
+    sx.arc(Math.random()*sw, Math.random()*sh, Math.random()*1.2+.3, 0, Math.PI*2);
+    sx.fill();
   }
 
-  // If player's score isn't in the displayed list, show their position
-  if(!playerShown && highlightName && highlightScore!==undefined && !showAll){
-    const playerIdx=allScores.findIndex(e=>
-      e.name.toLowerCase()===highlightName.toLowerCase() && e.score===highlightScore
-    );
-    if(playerIdx>=0){
-      html+=`<tr class="sep"><td colspan="3">···</td></tr>`;
-      html+=`<tr class="me"><td>${playerIdx+1}</td><td>${esc(allScores[playerIdx].name)} ← you</td><td>${allScores[playerIdx].score}</td></tr>`;
-    }
+  // Title
+  sx.textAlign="center";
+  sx.font="700 28px 'Lilita One',cursive";
+  sx.fillStyle="#f472b6";
+  sx.shadowColor="#7c3aed";
+  sx.shadowBlur=20;
+  sx.fillText("Y's & Hats",sw/2,45);
+  sx.shadowBlur=0;
+
+  // Score
+  sx.font="700 64px 'Lilita One',cursive";
+  sx.fillStyle="#fff";
+  sx.fillText(finalScore,sw/2,130);
+
+  // Details
+  sx.font="500 16px 'Quicksand',sans-serif";
+  sx.fillStyle="#c4b5fd";
+  sx.fillText(`Level ${finalLevel}  ·  Best Combo: ${finalBestCombo}x`,sw/2,165);
+
+  // New high score badge
+  if(isNewPB){
+    sx.font="700 18px 'Lilita One',cursive";
+    sx.fillStyle="#fbbf24";
+    sx.fillText("★ NEW HIGH SCORE ★",sw/2,200);
   }
 
-  html+='</table>';
-  return html;
+  // Personal best
+  sx.font="500 14px 'Quicksand',sans-serif";
+  sx.fillStyle="#ffffff66";
+  sx.fillText(`Personal Best: ${personalBest}`,sw/2,235);
+
+  // Footer
+  sx.font="500 12px 'Quicksand',sans-serif";
+  sx.fillStyle="#ffffff33";
+  sx.fillText("Can you beat my score?",sw/2,275);
+
+  return sc;
 }
 
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+async function shareResult(){
+  const isNewPB = score >= personalBest;
+  const shotCanvas = generateResultImage(score, level, bestCombo, isNewPB);
+
+  // Try native share with image first (mobile)
+  try {
+    const blob = await new Promise(r=>shotCanvas.toBlob(r,'image/png'));
+    const file = new File([blob], 'ys-and-hats-score.png', {type:'image/png'});
+
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({
+        text: `I scored ${score} in Y's & Hats! Can you beat me?`,
+        files: [file]
+      });
+      return;
+    }
+  } catch(e){
+    // Share cancelled or failed, fall through
+    if(e.name==='AbortError') return;
+  }
+
+  // Fallback: mailto with score details
+  const subject = encodeURIComponent(`Y's & Hats Score: ${score}!`);
+  const body = encodeURIComponent(
+    `I just scored ${score} in Y's & Hats!\n\n` +
+    `Level: ${level}\n` +
+    `Best Combo: ${bestCombo}x\n` +
+    `Personal Best: ${personalBest}\n\n` +
+    `Can you beat my score?`
+  );
+  window.location.href=`mailto:wellness@adiuvo.org.uk?subject=${subject}&body=${body}`;
+}
 
 /* ═══════ OVERLAY SCREENS ═══════ */
 function showMenu(){
@@ -380,18 +369,6 @@ function showMenu(){
     </p>
     <button class="obtn pink" onclick="startGame()">PLAY</button>
     ${personalBest>0?`<div class="personal-best">Your Best: ${personalBest}</div>`:''}
-    <button class="obtn ghost" onclick="showLeaderboard()">LEADERBOARD</button>
-  `;
-  overlay.style.display="flex";
-}
-
-window.showLeaderboard=async function(){
-  state="leaderboard";
-  await loadAllScores();
-  overlay.innerHTML=`
-    <h2 style="font-size:28px">Leaderboard</h2>
-    ${leaderboardHTML(playerName, undefined, true)}
-    <button class="obtn ghost" onclick="showMenu()" style="margin-top:14px">BACK</button>
   `;
   overlay.style.display="flex";
 }
@@ -402,62 +379,14 @@ function showGameOver(){
   const isNewPB=score>personalBest&&score>0;
   if(isNewPB) savePersonalBest(score);
 
-  // Always ask for name to record the score
-  state="nameinput";
   overlay.innerHTML=`
     <h2>Game Over</h2>
     <div class="big">${score}</div>
     <div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
     ${isNewPB?'<div class="gold">★ NEW HIGH SCORE ★</div>':''}
-    <p style="font-size:14px;color:#c4b5fd">Enter your name for the leaderboard:</p>
-    <input class="name-input" id="nameIn" type="text" maxlength="16" placeholder="Your name" value="${esc(playerName)}" autofocus>
-    <button class="obtn pink" id="submitName">SUBMIT</button>
-    <button class="obtn ghost" style="margin-top:8px" onclick="skipName()">SKIP</button>
-  `;
-  overlay.style.display="flex";
-  const nameIn=document.getElementById("nameIn");
-  const submitBtn=document.getElementById("submitName");
-  nameIn.focus();
-  nameIn.addEventListener("keydown",e=>{if(e.key==="Enter")submitBtn.click();});
-  submitBtn.addEventListener("click",async()=>{
-    const n=nameIn.value.trim();
-    if(n.length===0)return;
-    await savePlayerName(n);
-    await saveScore(n, score);
-    showPostScore(n, score);
-  });
-}
-
-window.skipName=async function(){
-  showPostScore(null, score);
-}
-
-async function showPostScore(name, s){
-  state="over";
-  await loadAllScores();
-
-  // Find rank
-  let rankText='';
-  if(name){
-    const idx=allScores.findIndex(e=>
-      e.name.toLowerCase()===name.toLowerCase() && e.score===s
-    );
-    if(idx>=0){
-      const rank=idx+1;
-      const total=allScores.length;
-      rankText=`<div class="rank-badge">You placed <span>#${rank}</span> of ${total}</div>`;
-    }
-  }
-
-  overlay.innerHTML=`
-    <h2>Game Over</h2>
-    <div class="big">${s}</div>
-    <div class="detail">Level ${level} · Best combo: ${bestCombo}x</div>
     ${personalBest>0?`<div class="personal-best">Personal Best: ${personalBest}</div>`:''}
-    ${rankText}
-    ${leaderboardHTML(name, s, false)}
+    <button class="obtn share" onclick="shareResult()">📤 SHARE SCORE</button>
     <button class="obtn red" onclick="startGame()">TRY AGAIN</button>
-    <button class="obtn ghost" onclick="showMenu()" style="margin-top:6px">MENU</button>
   `;
   overlay.style.display="flex";
 }
@@ -779,7 +708,6 @@ function drawGame(){
 let keysDown=new Set();
 
 document.addEventListener("keydown",e=>{
-  if(state==="nameinput") return;
   if(state!=="playing") return;
   const k=e.key.toLowerCase();
 
@@ -811,11 +739,9 @@ document.addEventListener("keyup",e=>{
 });
 
 /* ═══════ INIT ═══════ */
-(async()=>{
-  await loadData();
-  showMenu();
-  requestAnimationFrame(loop);
-})();
+loadData();
+showMenu();
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
